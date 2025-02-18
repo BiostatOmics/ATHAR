@@ -1,0 +1,725 @@
+---
+title: "Harmonization Problems"
+author: "Pedro Salguero"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+params:
+  data1: 
+    label: "Path of Dataset 1: (should be a .RData/.RDS or an .xlsx file with colnames)"
+    value: "File1.RData"
+    input: file
+  data2: 
+    label: "Path of Dataset 2: (should be a .RData/.RDS or an .xlsx file with colnames)"
+    value: "File2.RData"
+    input: file
+  data3: 
+    label: "Path of Dataset 3: (should be a .RData/.RDS or an .xlsx file with colnames)"
+    value: "File3.RData"
+    input: file
+  data4: 
+    label: "Path of Dataset 4: (should be a .RData/.RDS or an .xlsx file with colnames)"
+    value: "File4.RData"
+    input: file
+  data5: 
+    label: "Path of Dataset 5: (should be a .RData/.RDS or an .xlsx file with colnames)"
+    value: "File5.RData"
+    input: file
+  translation_file: 
+    label: "Merge template file: (must be the .xlsx file provided)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/input_data/translation.xlsx"
+    input: file
+  FUNCTIONS_PATH: 
+    label: "Folder path with all function scripts: (select any file)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/scripts/functions/1.Functions.R"
+    input: file
+  OUTPUT: 
+    label: "Output path: (a folder with the results will be create inside this folder)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/"
+    text: file
+  UNITS_VAR_TYPE:
+    label: "Category name in 'Group' column in Translation file to identify variables that list the unit used for Numerical Variables (optional)"
+    value: "UNITS_VAR"
+    input: text
+  PARALLEL: 
+    label: "Do you want to run the script with multicore option?"
+    value: TRUE
+---
+
+<!-- if(.Platform$OS.type == "unix") { -->
+<!--   future::plan("multicore", workers = min(length(times.aux), n_cores)) -->
+<!-- }else{ -->
+<!--   future::plan("multisession", workers = min(length(times.aux), n_cores)) -->
+<!-- } -->
+
+```{r new max size, echo=F, warning=F, message=F, eval=F, include=F, results='hide'}
+#If your file is greater than 5Mb, update the maximum size
+new_size = 30 #Mb
+options(shiny.maxRequestSize=new_size*1024^2)
+rm(new_size)
+```
+
+```{r setup, echo=F, warning=F, message=F, include=F, results='hide'}
+# Chunk options - ALREADY IN GGPLOT2 SOURCE
+knitr::opts_chunk$set(
+ echo=F,
+ warning=F,
+ message=F, 
+ error = F
+)
+
+dpi = 300
+
+knitr::opts_chunk$set(
+ dpi=dpi, 
+ fig.retina=1, 
+ fig.width=1440/dpi, #4:3 FHD
+ fig.height=1080/dpi, 
+ out.width="100%"
+)
+
+rm(dpi)
+```
+
+```{r functions}
+#Load REPORT functions
+loadReportFunctions <- function(path){
+  file <- paste0(path,"0.ReportFunctions.R")
+  source(file, echo = F)
+}
+
+#Load 1.Functions functions
+loadFunctions_1 <- function(path){
+  file <- paste0(path,"1.Functions.R")
+  source(file, echo = F)
+}
+
+#Get CSS Style
+getCSS_file <- function(path){
+  files <- list.files(path)
+  file <- files[which(endsWith(files, ".css"))]
+  return(paste0(path, file))
+}
+
+#Load ggplot theme
+loadGgplotTheme <- function(path){
+  file <- paste0(path,"ggplot_theme.R")
+  source(file, echo = F)
+}
+
+loadFunctions <- function(path){
+  loadReportFunctions(path)
+  loadFunctions_1(path)
+  loadGgplotTheme(path)
+  rmarkdown::html_document(css = getCSS_file(path))
+}
+```
+
+```{r libraries}
+library(readxl, quietly = T)
+library(openxlsx, quietly = T)
+library(future, quietly = T)
+library(VennDiagram, quietly = T)
+library(UpSetR, quietly = T)
+library(furrr, quietly = T)
+library(ggplot2, quietly = T)
+library(RColorConesa, quietly = T)
+library(kableExtra, quietly = T)
+library(stringr, quietly = T)
+library(dplyr, quietly = T)
+library(grid, quietly = T)
+library(RColorConesa, quietly = T)
+library(stringdist, quietly = T)
+```
+
+<!-- 
+#########
+# INPUT #
+#########
+-->
+
+```{r load all functions, include=F}
+#It will fail in other OS
+if(endsWith(params$FUNCTIONS_PATH, "/")){
+  loadFunctions(params$FUNCTIONS_PATH)
+}else{
+  index <- gregexpr("/", params$FUNCTIONS_PATH)[[1]]
+  index <- index[length(index)]
+  fpath <- substr(params$FUNCTIONS_PATH, 1, index)
+  loadFunctions(fpath)
+}
+```
+
+```{r FOLDER for save results}
+FOLDER <- paste0(ifelse(endsWith(params$OUTPUT, "/"),params$OUTPUT,paste0(params$OUTPUT, "/")),"1.Harmonization_Problems/")
+dir.create(FOLDER)
+```
+
+<!-- 
+#########
+# DATA1 #
+#########
+-->
+
+```{r readData - 1}
+if(endsWith(params$data1, ".RData") | endsWith(params$data1, ".RDS")){
+  data1 <- load(params$data1)
+  if(class(data1)=="character" & exists(data1)){
+    data_aux <- get(data1)
+    rm(list = ls.str()[ls.str() %in% data1])
+    data1 <- data_aux
+    rm(data_aux)
+  }
+}else if(endsWith(params$data1, ".xlsx")){
+  data1 <- as.data.frame(readxl::read_excel(params$data1))
+}else if(is.null(params$data1)){
+  data1 <- NULL
+}
+```
+
+<!-- 
+#########
+# DATA2 #
+#########
+-->
+
+```{r readData - 2}
+if(endsWith(params$data2, ".RData") | endsWith(params$data2, ".RDS")){
+  data2 <- load(params$data2)
+  if(class(data2)=="character" & exists(data2)){
+    data_aux <- get(data2)
+    rm(list = ls.str()[ls.str() %in% data2])
+    data2 <- data_aux
+    rm(data_aux)
+  }
+}else if(endsWith(params$data2, ".xlsx")){
+  data2 <- as.data.frame(readxl::read_excel(params$data2))
+}else if(is.null(params$data1)){
+  data2 <- NULL
+}
+```
+
+<!-- 
+#########
+# DATA3 #
+#########
+-->
+
+```{r readData - 3}
+if(endsWith(params$data3, ".RData") | endsWith(params$data3, ".RDS")){
+  data3 <- load(params$data3)
+  if(class(data3)=="character" & exists(data3)){
+    data_aux <- get(data3)
+    rm(list = ls.str()[ls.str() %in% data3])
+    data3 <- data_aux
+    rm(data_aux)
+  }
+}else if(endsWith(params$data3, ".xlsx")){
+  data3 <- as.data.frame(readxl::read_excel(params$data3))
+}else if(is.null(params$data3)){
+  data3 <- NULL
+}
+```
+
+<!-- 
+#########
+# DATA4 #
+#########
+-->
+
+```{r readData - 4}
+if(endsWith(params$data4, ".RData") | endsWith(params$data4, ".RDS")){
+  data4 <- load(params$data4)
+  if(class(data4)=="character" & exists(data4)){
+    data_aux <- get(data4)
+    rm(list = ls.str()[ls.str() %in% data4])
+    data4 <- data_aux
+    rm(data_aux)
+  }
+}else if(endsWith(params$data4, ".xlsx")){
+  data4 <- as.data.frame(readxl::read_excel(params$data4))
+}else if(is.null(params$data4)){
+  data4 <- NULL
+}
+```
+
+<!-- 
+#########
+# DATA5 #
+#########
+-->
+
+```{r readData - 5}
+if(endsWith(params$data5, ".RData") | endsWith(params$data5, ".RDS")){
+  data5 <- load(params$data5)
+  if(class(data5)=="character" & exists(data5)){
+    data_aux <- get(data5)
+    rm(list = ls.str()[ls.str() %in% data5])
+    data5 <- data_aux
+    rm(data_aux)
+  }
+}else if(endsWith(params$data5, ".xlsx")){
+  data5 <- as.data.frame(readxl::read_excel(params$data5))
+}else if(is.null(params$data5)){
+  data5 <- NULL
+}
+```
+
+<!-- 
+###################
+# CHANGE COLNAMES #
+###################
+-->
+
+```{r readData - template}
+if(endsWith(params$translation_file, ".RData") | endsWith(params$translation_file, ".RDS")){
+  VAR_TRANSLATION <- load(params$translation_file)
+}else if(endsWith(params$translation_file, ".xlsx")){
+  VAR_TRANSLATION <- as.data.frame(readxl::read_excel(params$translation_file))
+}else if(is.null(params$translation_file)){
+  stop("Translation file must be provided.")
+}
+```
+
+```{r list comorbidities}
+### THIS IS AN EXTRA FILE - VAR_DESCRIPTION
+VAR_DESCRIPTION <- VAR_TRANSLATION[,c(1,3,4)]
+VAR_DESCRIPTION <- VAR_DESCRIPTION[!is.na(VAR_DESCRIPTION[,1]),]
+VAR_DESCRIPTION$Group <- factor(VAR_DESCRIPTION$Group)
+```
+
+## Dataset information
+
+```{r NAMES_REFERENCE}
+NAMES_REFERENCE <- colnames(VAR_TRANSLATION)[5]
+NAMES_NOT_REFERENCE <- colnames(VAR_TRANSLATION)[6:ncol(VAR_TRANSLATION)]
+NAMES_DDBB <- colnames(VAR_TRANSLATION)[5:ncol(VAR_TRANSLATION)]
+
+PARALLEL = as.logical(params$PARALLEL)
+
+UNITS_VAR = VAR_DESCRIPTION[VAR_DESCRIPTION$Group==params$UNITS_VAR_TYPE,]$Variable
+```
+
+The reference data set is `r NAMES_REFERENCE`. The other data set that will be merge into the reference are `r NAMES_NOT_REFERENCE`. We are working with a total of `r length(NAMES_DDBB)` databases.
+
+```{r get data list}
+LST_DATA <- list()
+cont = 1
+
+if(exists("data1") && !is.null(data1)){
+  LST_DATA[[cont]] <- data1
+  cont = cont+1
+  rm(data1)
+}
+
+if(exists("data2") && !is.null(data2)){
+  LST_DATA[[cont]] <- data2
+  cont = cont+1
+  rm(data2)
+}
+
+if(exists("data3") && !is.null(data3)){
+  LST_DATA[[cont]] <- data3
+  cont = cont+1
+  rm(data3)
+}
+
+if(exists("data4") && !is.null(data4)){
+  LST_DATA[[cont]] <- data4
+  cont = cont+1
+  rm(data4)
+}
+
+if(exists("data5") && !is.null(data5)){
+  LST_DATA[[cont]] <- data5
+  cont = cont+1
+  rm(data5)
+}
+```
+
+```{r get data column names}
+if(length(LST_DATA) != length(NAMES_DDBB)){
+  stop("All data providad must be added to the template file. After 'Description' column, must be as columns as data set you are loading. The order must be the same.")
+}else{
+  names(LST_DATA) <- NAMES_DDBB
+}
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA), n_cores))
+  }
+  
+  lst_new.data_allinfo <- furrr::future_map2(.x = LST_DATA, .y = names(LST_DATA), ~getUpdatedColnamesDF(.x, VAR_TRANSLATION, .y, 
+                                                                                                        keepVariables = T))
+  lst_new.data <- furrr::future_map2(.x = LST_DATA, .y = names(LST_DATA), ~getUpdatedColnamesDF(.x, VAR_TRANSLATION, .y))
+  future::plan("sequential")
+}else{
+  lst_new.data_allinfo <- purrr::map2(.x = LST_DATA, .y = names(LST_DATA), ~getUpdatedColnamesDF(.x, VAR_TRANSLATION, .y, 
+                                                                                                 keepVariables = T))
+  lst_new.data <- purrr::map2(.x = LST_DATA, .y = names(LST_DATA), ~getUpdatedColnamesDF(.x, VAR_TRANSLATION, .y))
+}
+```
+
+<!-- 
+################
+# VENN DIAGRAM #
+################
+-->
+
+## Variable Venn Diagram - All variables {.tabset .tabset-fade}
+
+Venn diagram between variables and databases.
+
+```{r variables venn diagram all variables, include=FALSE}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_new.data_allinfo), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_new.data_allinfo), n_cores))
+  }
+  
+  lst_namevars <- furrr::future_map(lst_new.data_allinfo, ~colnames(.))
+  future::plan("sequential")
+}else{
+  lst_namevars <- purrr::map(lst_new.data_allinfo, ~colnames(.))
+}
+
+colors <- RColorConesa::colorConesa(length(lst_namevars))
+fill <- c(ggplot2::alpha(colors,0.5))
+
+venn.variables <- VennDiagram::venn.diagram(
+  x = lst_namevars,
+  col=colors,
+  fill = fill,
+  category.names = names(lst_namevars),
+  filename = NULL,
+  output=TRUE)
+
+png(file=paste0(FOLDER,"venn_all.png"), units = "px", width = 1920, height = 1080, res = 300) # or other device
+grid.newpage()
+grid.draw(venn.variables)
+dev.off()
+
+upset_var_intersect <- UpSetR::upset(fromList(lst_namevars), 
+                                     order.by = "degree", 
+                                     matrix.color = RColorConesa::colorConesa(1), 
+                                     sets.bar.color	= RColorConesa::colorConesa(1),
+                                     main.bar.color	= RColorConesa::colorConesa(1))
+
+png(file=paste0(FOLDER,"upset_all.png"), units = "px", width = 1920, height = 1080, res = 300) # or other device
+upset_var_intersect
+dev.off()
+
+RES_VENN_ALL <- list("Venn Diagram" = venn.variables, "Upset plot" = upset_var_intersect)
+
+rm(lst_new.data_allinfo)
+```
+
+```{r plot venn all variables, results='asis'}
+printVENNInHTML_ByTabs(lst_names = names(RES_VENN_ALL), lst_plots = RES_VENN_ALL, multiple_plots = F)
+rm(RES_VENN_ALL)
+```
+
+## Variable Venn Diagram - Commond Variables {.tabset .tabset-fade}
+
+As the first database will be selected as the reference, a second Venn diagram is shown to illustrate how many variables could be keept in the merge databases.
+
+```{r variables venn diagram, include=FALSE}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_new.data), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_new.data), n_cores))
+  }
+  
+  lst_namevars <- furrr::future_map(lst_new.data, ~colnames(.))
+  future::plan("sequential")
+}else{
+  lst_namevars <- purrr::map(lst_new.data, ~colnames(.))
+}
+
+colors <- RColorConesa::colorConesa(length(lst_namevars))
+fill <- c(ggplot2::alpha(colors,0.5))
+
+venn.variables <- VennDiagram::venn.diagram(
+  x = lst_namevars,
+  col=colors,
+  fill = fill,
+  category.names = names(lst_namevars),
+  filename = NULL,
+  output=TRUE)
+
+png(file=paste0(FOLDER,"venn.png"), units = "px", width = 1920, height = 1080, res = 300) # or other device
+grid.newpage()
+grid.draw(venn.variables)
+dev.off()
+
+upset_var_intersect <- UpSetR::upset(fromList(lst_namevars), 
+                             order.by = "degree", 
+                             matrix.color = RColorConesa::colorConesa(1), 
+                             sets.bar.color	= RColorConesa::colorConesa(1),
+                             main.bar.color	= RColorConesa::colorConesa(1))
+
+png(file=paste0(FOLDER,"upset.png"), units = "px", width = 1920, height = 1080, res = 300) # or other device
+upset_var_intersect
+dev.off()
+
+RES_VENN <- list("Venn Diagram" = venn.variables, "Upset plot" = upset_var_intersect)
+
+rm(venn.variables, upset_var_intersect, lst_namevars)
+```
+
+```{r plot venn, results='asis'}
+printVENNInHTML_ByTabs(lst_names = names(RES_VENN), lst_plots = RES_VENN, multiple_plots = F)
+rm(RES_VENN)
+```
+
+<!-- 
+#################
+# CHECK CLASSES #
+#################
+-->
+
+## Class problems between template and databases {.tabset .tabset-fade}
+
+```{r transform classes}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_new.data), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_new.data), n_cores))
+  }
+  
+  lst_classes <- furrr::future_map(lst_new.data, ~checkRClassesFromFile(data = ., VAR_TRANSLATION, fix = T))
+  future::plan("sequential")
+}else{
+  lst_classes <- purrr::map(lst_new.data, ~checkRClassesFromFile(data = ., VAR_TRANSLATION, fix = T))
+}
+
+rm(lst_new.data)
+```
+
+The next variables have not could updated to the specified class in the template file. We recommend to update those variable by hand before running the Harmonization Script, and try it again.
+
+```{r plot info class problems, results='asis'}
+printDFInHTML_ByTabs(lst_names = lst_classes, lst_dataframes = lst_classes, names = "problems", custom_msg = "No variables with problems.")
+```
+
+## Class fixed between template and databases {.tabset .tabset-fade}
+
+The next variables have been updated to the correct class. However, due to automatic process, may be some problems in the conversion that could be probably be detected in posteriors steps.
+
+```{r plot class info, results='asis'}
+printDFInHTML_ByTabs(lst_names = lst_classes, lst_dataframes = lst_classes, names = "fixed", custom_msg = "All variables have the correct class.")
+```
+
+<!-- 
+#################
+# CHECK FACTORS #
+#################
+-->
+
+## Qualitative variable study {.tabset .tabset-fade}
+
+Next step of the pipeline will generate .xlsx files with an easy structure to update inconsistencies in level/category names between each database and the reference one.
+
+The structure is:
+
+ VAR: var_name_ref / var_name   Category1, Category2, Category3... (reference database)
+------------------------------ ---------------------------------------------------------
+CAT1
+CAT2
+
+CAT1 and CAT2 are related to the database are going to be merged. As At least of one of those categories have not been detected in the reference one, the user must specified the equivalence in reference categories. Also, if a new name is introduced, a new factor will be added to the reference. If the field is left empty, that category will be deleted and those samples will get a NA value.
+
+Remember to fill the FILES before perform next Harmonization script.
+
+```{r transform factors}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_classes), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_classes), n_cores))
+  }
+  
+  lst_factor.info <- furrr::future_map2(.x = lst_classes, .y = names(lst_classes), 
+                               ~checkFactors(data = .x$data, 
+                                             reference = lst_classes[[NAMES_REFERENCE]]$data,
+                                             VAR_TRANSLATION, name = .y))
+  future::plan("sequential")
+}else{
+  lst_factor.info <- purrr::map2(.x = lst_classes, .y = names(lst_classes), 
+                               ~checkFactors(data = .x$data, 
+                                             reference = lst_classes[[NAMES_REFERENCE]]$data,
+                                             VAR_TRANSLATION, name = .y))
+}
+
+lst_save <- as.list(paste0(FOLDER, names(lst_factor.info), "2", NAMES_REFERENCE, ".xlsx"))
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_factor.info), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_factor.info), n_cores))
+  }
+  
+  invisible(furrr::future_map2(.x = lst_factor.info, .y = lst_save, ~factorToExcel(lst_factor = .x, path = .y)))
+  future::plan("sequential")
+}else{
+  invisible(purrr::map2(.x = lst_factor.info, .y = lst_save, ~factorToExcel(lst_factor = .x, path = .y)))
+}
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_factor.info), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_factor.info), n_cores))
+  }
+  
+  lst_var_factor <- furrr::future_map(lst_factor.info, ~getVarDescDF(VAR_DESCRIPTION, names(.)))
+  future::plan("sequential")
+}else{
+  lst_var_factor <- purrr::map(lst_factor.info, ~getVarDescDF(VAR_DESCRIPTION, names(.)))
+}
+
+rm(lst_factor.info, lst_save)
+```
+
+```{r plot category info, results='asis'}
+printDFInHTML_ByTabs(lst_names = lst_var_factor, lst_dataframes = lst_var_factor, custom_msg = "All variables have the correct categories.")
+rm(lst_var_factor)
+```
+
+<!-- 
+###############
+# CHECK UNITS #
+###############
+-->
+
+## Unit of measurement study {.tabset .tabset-fade}
+
+```{r check units}
+df_vars <- NULL
+for(cn in UNITS_VAR){
+  df_h <- NULL
+  for(h in names(lst_classes)){
+    if(cn %in% colnames(lst_classes[[h]]$data)){
+      val <- table(lst_classes[[h]]$data[,cn])
+      val <- names(val)[val>0]
+      df_h <- c(df_h, paste0(val, collapse = ", "))
+    }else{
+      df_h <- c(df_h, NA)
+    }
+  }
+  df_vars <- rbind(df_vars, c(cn, df_h))
+}
+
+lst_problems <- NULL
+for(f in df_vars[,1]){
+  first <- df_vars[df_vars[,1]==f,2]
+  flag = F
+  for(h in 2:ncol(df_vars)){
+    if(is.na(df_vars[df_vars[,1]==f,h])){
+      next
+    }
+    
+    if(first!=df_vars[df_vars[,1]==f,h]){
+      flag = T
+      break
+    }
+  }
+  if(flag){
+    lst_problems <- c(lst_problems, f)
+  }
+}
+
+df_vars_prob <- df_vars[df_vars[,1] %in% lst_problems,]
+
+colnames(df_vars_prob) <- c("Variable", names(lst_classes))
+```
+
+```{r plot unit vars, results='asis'}
+if(nrow(df_vars_prob)>0){
+  print(kableFormatted(df_vars_prob))
+}else{
+  cat("All units are correct between all databases.")
+}
+
+rm(df_vars_prob)
+```
+
+## Save Process {.tabset .tabset-fade}
+
+Databases are saved in .RData and .xlsx format with their new colnames. Excel format does not save the same R class for each variable. We recommend to work with .RData files in case you want to do your own study.
+
+```{r save data, include=F}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_classes), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_classes), n_cores))
+  }
+  
+  LST_DATA <- furrr::future_map(lst_classes, ~.$data)
+  future::plan("sequential")
+}else{
+  LST_DATA <- purrr::map(lst_classes, ~.$data)
+}
+
+rm(lst_classes)
+
+library(openxlsx)
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA), n_cores))
+  }
+  
+  furrr::future_map2(.x = LST_DATA, .y = names(LST_DATA), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  furrr::future_map2(.x = LST_DATA, .y = names(LST_DATA), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+  future::plan("sequential")
+}else{
+  purrr::map2(.x = LST_DATA, .y = names(LST_DATA), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  purrr::map2(.x = LST_DATA, .y = names(LST_DATA), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+}
+
+rm(params)
+rm(list = ls.str(mode = 'numeric')[stringr::str_detect(ls.str(mode = "numeric"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'character')[stringr::str_detect(ls.str(mode = "character"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'logical')[stringr::str_detect(ls.str(mode = "logical"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'NULL')[stringr::str_detect(ls.str(mode = "NULL"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'function'))
+```
+
+```{r saveData filtered, results="hide"}
+save.image(paste0(FOLDER,"harmonization_problems.output.RData"))
+```

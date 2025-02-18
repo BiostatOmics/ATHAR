@@ -1,0 +1,1402 @@
+---
+title: "Exploratory Analysis - Correction"
+author: "Pedro Salguero"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+params:
+  EA_input: 
+    label: "Exploratory Analysis Correction Input: (should be a .RData from last analysis)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/4.Exploratoy_Analysis/ExploratoryAnalysis.output.RData"
+    input: file
+  CI_T2: 
+    label: "Confidence interval for T2 filter: Observations with a T2 value higher than two times the value of the interval will be deleted."
+    value: 0.99
+    input: select
+    choices: ["None", 0.95, 0.99, 0.999]
+  CI_SSR: 
+    label: "Confidence interval for SSR filter: Observations with a SSR value higher than two times the value of the interval will be deleted."
+    value: 0.99
+    input: select
+    choices: ["None", 0.95, 0.99, 0.999]
+  NAME_MERGE1:
+    label: "Merge database 1:"
+    value: "Italian"
+    input: text
+  VAR_BIAS1:
+    label: "Variable names you want to REMOVE from your data because they are generating a BIAS between different sources (separated by spaces)"
+    value: "xray_prperf_v2 ct_prperf hoyn viralpneu_ceterm shortbreath_ceoccur_v2 ards_ceterm fatigue_ceoccur_v2 noninvasive_proccur admission_diabp_vsorres oxygen_cmoccur sysbp_vsorres hr_vsorres"
+    input: text
+  NAME_MERGE2:
+    label: "Merge database 2:"
+    value: "European"
+    input: text
+  VAR_BIAS2:
+    label: "Variable names you want to REMOVE from your data because they are generating a BIAS between different sources (separated by spaces)"
+    value: "chroniccard_mhyn rr_vsorres admission_diabp_vsorres daily_crp_lborres pronevent_prtrt fever_ceoccur_v2 noninvasive_proccur ards_ceterm daily_hb_lborres oxygen_cmoccur"
+    input: text
+  NAME_MERGE3:
+    label: "Merge database 3:"
+    value: ""
+    input: text
+  VAR_BIAS3:
+    label: "Variable names you want to REMOVE from your data because they are generating a BIAS between different sources (separated by spaces)"
+    value: ""
+    input: text
+  # USE_Other_Input: 
+  #   label: "Do you want to use your custom data?"
+  #   value: False
+  # Other_Input: 
+  #   label: "Load your own Database: (Not recomended: should be a .RData/.RDS file with your database correctly treated)"
+  #   value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/3.Adding_Information/Monza.RData"
+  #   input: file
+  # VAR_DDBB_MANUAL:
+  #   label: "Variable name to identify the source of the merge databases (optional)"
+  #   value: "SOURCE"
+  #   input: text
+  # SIG:
+  #   label: "Significant cutoff: (0-1)"
+  #   value: 0.05
+  #   input: numeric
+  # VAR_EVENT:
+  #   label: "Variable name related to the event of study (Survival Analysis - Optional)"
+  #   value: "dsterm"
+  #   input: text
+  # VAL_NAMAX:
+  #   label: "Maximum % of NAs allowed (from 0-1)"
+  #   value: 0.2
+  #   input: numeric
+  # VAR_NA_KEEP:
+  #   label: "Variable names you want to exclude for NA Analysis (separated by spaces)"
+  #   value: "icu_hostdat hoendat hodur"
+  #   input: text
+  # VAR_NZV_KEEP:
+  #   label: "Variable names you want to exclude for Near Zero Variance Analysis (separated by spaces)"
+  #   value: "sex dsterm country"
+  #   input: text
+  # PCA_COMP:
+  #   label: "Number of components to compute in PCA (if 0, best number selected):"
+  #   value: 5
+  #   input: numeric
+  # VAR_PCA_EXCLUDE:
+  #   label: "Variable names you want to exclude for PCA and use to color (separated by spaces - EVENT and SOURCE will be excluded automaticatly)"
+  #   value: "country sex age_estimateyears.qual"
+  #   input: text
+  # EXCLUDE_OUTCOME_VAR:
+  #   label: "Exclude variables that are related to the results/outcome in PCA?"
+  #   value: TRUE
+  # UNITS_VAR_TYPE:
+  #   label: "Category name in 'Group' column in Translation file to identify variables that list the unit used for Numerical Variables (optional)"
+  #   value: "UNITS_VAR"
+  #   input: text
+  # OUTCOME_VAR_TYPE:
+  #   label: "Category name in 'Group' column in Translation file to identify variables that are related to the results/outcome of the treatment (optional)"
+  #   value: "OUTCOME_VAR"
+  #   input: text
+  FUNCTIONS_PATH: 
+    label: "Folder path with all function scripts: (select any file)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/scripts/functions/1.Functions.R"
+    input: file
+  OUTPUT: 
+    label: "Output path: (a folder with the results will be create inside this folder)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/"
+    input: text
+  PARALLEL: 
+    label: "Do you want to run the script with multicore option?"
+    value: TRUE
+---
+
+```{r new max size, include=F, results='hide'}
+#If your file is greater than 5Mb, update the maximum size
+new_size = 40 #Mb
+options(shiny.maxRequestSize=new_size*1024^2)
+rm(new_size)
+```
+
+```{r setup, include=F, results='hide'}
+# Chunk options - ALREADY IN GGPLOT2 SOURCE
+knitr::opts_chunk$set(
+ echo=F,
+ warning=F,
+ message=F,
+ error = F
+)
+
+dpi = 300
+
+knitr::opts_chunk$set(
+ dpi=dpi, 
+ fig.retina=1, 
+ fig.width=1440/dpi, #4:3 FHD
+ fig.height=1080/dpi, 
+ out.width="100%"
+)
+
+rm(dpi)
+```
+
+```{r functions}
+#Load REPORT functions
+loadReportFunctions <- function(path){
+  file <- paste0(path,"0.ReportFunctions.R")
+  source(file, echo = F)
+}
+
+#Load 1.Functions functions
+loadFunctions_1 <- function(path){
+  file <- paste0(path,"1.Functions.R")
+  source(file, echo = F)
+}
+
+#Load 2.Functions functions
+loadFunctions_2 <- function(path){
+  file <- paste0(path,"2.Functions.R")
+  source(file, echo = F)
+}
+
+#Load 4.Functions functions
+loadFunctions_4 <- function(path){
+  file <- paste0(path,"4.Functions.R")
+  source(file, echo = F)
+}
+
+#Load 5.Functions functions
+loadFunctions_5 <- function(path){
+  file <- paste0(path,"5.Functions.R")
+  source(file, echo = F)
+}
+
+#Get CSS Style
+getCSS_file <- function(path){
+  files <- list.files(path)
+  file <- files[which(endsWith(files, ".css"))]
+  return(paste0(path, file))
+}
+
+#Load ggplot theme
+loadGgplotTheme <- function(path){
+  file <- paste0(path,"ggplot_theme.R")
+  source(file, echo = F)
+}
+
+loadFunctions <- function(path){
+  loadReportFunctions(path)
+  loadFunctions_1(path)
+  loadFunctions_2(path)
+  loadFunctions_4(path)
+  loadFunctions_5(path)
+  loadGgplotTheme(path)
+  rmarkdown::html_document(css = getCSS_file(path))
+}
+```
+
+```{r libraries, include=F}
+library(readxl, quietly = T)
+library(openxlsx, quietly = T)
+library(future, quietly = T)
+library(VennDiagram, quietly = T)
+library(UpSetR, quietly = T)
+library(furrr, quietly = T)
+library(ggplot2, quietly = T)
+library(RColorConesa, quietly = T)
+library(kableExtra, quietly = T)
+library(stringr, quietly = T)
+library(dplyr, quietly = T)
+library(grid, quietly = T)
+library(caret, quietly = T)
+library(lattice, quietly = T)
+library(ggpubr, quietly = T)
+library(ropls, quietly = T)
+library(RColorConesa, quietly = T)
+library(stringdist, quietly = T)
+```
+
+<!-- 
+#########
+# INPUT #
+#########
+-->
+
+```{r load all functions, include=F}
+#It will fail in other OS !!!!!
+if(endsWith(params$FUNCTIONS_PATH, "/")){
+  loadFunctions(params$FUNCTIONS_PATH)
+}else{
+  index <- gregexpr("/", params$FUNCTIONS_PATH)[[1]]
+  index <- index[length(index)]
+  fpath <- substr(params$FUNCTIONS_PATH, 1, index)
+  loadFunctions(fpath)
+}
+```
+
+<!-- 
+########
+# DATA #
+########
+-->
+
+```{r checks}
+# if(params$SIG>1){
+#   stop("Introduced a Significance value greater than 1,")
+# }else if(params$SIG < 0){
+#   stop("Introduced a Significance value lesser than 0.")
+# }
+# 
+# if(params$VAL_NAMAX>1){
+#   stop("Introduced a NA limit greater than 1,")
+# }else if(params$VAL_NAMAX < 0){
+#   stop("Introduced a NA limit lesser than 0.")
+# }
+```
+
+```{r readData - 1}
+LST_DATA_ALL <- list()
+LST_DATA <- list()
+LST_DATA_MERGE <- list()
+
+if(endsWith(params$EA_input, ".RData")){
+  load(params$EA_input)
+}else{
+  stop("Harmonization Problems output must be the .RData object (called ExploratoryAnalysis.output) or you have to select your own object.")
+}
+```
+
+```{r FOLDER for save results}
+
+#add extra folders
+if(length(grep("5.Exploratoy_Analysis_Correction", params$EA_input))>0){
+  aux <- strsplit(params$EA_input, "Exploratoy_Analysis_Correction")[[1]][2]
+  if(startsWith(aux,"/")){ #second run
+    FOLDER <- paste0(ifelse(endsWith(params$OUTPUT, "/"),params$OUTPUT,paste0(params$OUTPUT, "/")),"5.Exploratoy_Analysis_Correction_02/")
+  }else if(startsWith(aux,"_")){
+    count = substr(strsplit(aux,"_")[[1]][2], 1, 2)
+    count = as.numeric(count) + 1
+    if(count<10){
+      count = paste0("0", count)
+    }else{
+      count = as.character(count)
+    }
+    FOLDER <- paste0(ifelse(endsWith(params$OUTPUT, "/"),
+                            params$OUTPUT,paste0(params$OUTPUT, "/")),"5.Exploratoy_Analysis_Correction_",count,"/")
+  }
+  
+}else{
+  FOLDER <- paste0(ifelse(endsWith(params$OUTPUT, "/"),params$OUTPUT,paste0(params$OUTPUT, "/")),"5.Exploratoy_Analysis_Correction/")
+}
+
+dir.create(FOLDER)
+```
+
+<!-- 
+##################
+# READ LAST DATA #
+##################
+-->
+
+```{r NAMES_REFERENCE}
+DEBUG = F
+
+ddbb_fix <- c(params$NAME_MERGE1, params$NAME_MERGE2, params$NAME_MERGE3)
+ddbb_fix <- names(LST_DATA_ALL)[names(LST_DATA_ALL) %in% ddbb_fix]
+
+ddbb_needed <- NULL
+for(ddbb in ddbb_fix){
+  ddbb_needed <- c(ddbb_needed, levels(LST_DATA_ALL[[ddbb]][[VAR_DDBB]]))
+}
+ddbb_needed <- unique(ddbb_needed)
+
+if(DEBUG){
+  #DEBUG
+  LST_DATA_ALL <- LST_DATA_ALL[c(1,5)]
+  LST_DATA <- LST_DATA[c(1)]
+  LST_DATA_MERGE <- LST_DATA_MERGE[c(1)]
+  LST_VAR <- LST_VAR[c(1,5)]
+  LST_PCA_INPUT <- LST_PCA_INPUT[c(1,5)]
+  LST_PCA_INPUT_RAW <- LST_PCA_INPUT_RAW[c(1,5)]
+  LST_SDATA <- LST_SDATA[c(1,5)]
+}else{
+  #DEBUG
+  LST_DATA_ALL <- LST_DATA_ALL[c(ddbb_needed,ddbb_fix)]
+  LST_DATA <- LST_DATA[c(ddbb_needed)]
+  LST_DATA_MERGE <- LST_DATA_MERGE[c(ddbb_fix)]
+  LST_VAR <- LST_VAR[c(ddbb_needed,ddbb_fix)]
+  LST_PCA_INPUT <- LST_PCA_INPUT[c(ddbb_needed,ddbb_fix)]
+  LST_PCA_INPUT_RAW <- LST_PCA_INPUT_RAW[c(ddbb_needed,ddbb_fix)]
+  LST_SDATA <- LST_SDATA[c(ddbb_needed,ddbb_fix)]
+}
+
+# FLAG_DESC <- exists("VAR_DESCRIPTION")
+# 
+# if(!exists("VAR_DDBB")){
+#   VAR_DDBB = params$VAR_DDBB_MANUAL
+# }
+# 
+# if(!exists("VAR_EVENT")){
+#   VAR_EVENT = params$VAR_EVENT
+# }
+
+PARALLEL = params$PARALLEL
+```
+
+## Basic Information - Original Data {.tabset .tabset-fade}
+
+```{r basic information}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+```
+
+```{r plot info - basic information, results='asis'}
+printDFInHTML_ByTabs(RES_BASIC_INFORMATION, RES_BASIC_INFORMATION)
+```
+
+## Remove Outlier patients in PCA - T2 {.tabset .tabset-fade}
+
+```{r CI to remove T2}
+#CI to remove
+CI_T2 = params$CI_T2
+```
+
+`r ifelse(CI_T2 == "None", "Any observation will be removed.", paste0("Patients with a T2 value higher than two times ", as.numeric(CI_T2)*100, " % confidence interval value will be removed. In case you would want to perform a manual deletion, you should star the process again without that observations."))`
+
+```{r remove T2}
+
+if(!CI_T2=="None"){
+  
+  CI_T2 = as.character(CI_T2)
+  
+  if(PARALLEL){
+    n_cores <- max(future::availableCores() - 1, 1)
+    
+    if(.Platform$OS.type == "unix") {
+      future::plan("multicore", workers = min(length(RES_PCA_T2), n_cores))
+    }else{
+      future::plan("multisession", workers = min(length(RES_PCA_T2), n_cores))
+    }
+    
+    #GET ID
+    remove_patients_T2 <- furrr::future_map(RES_PCA_T2, ~.$lst_outlier[[CI_T2]]$ID)
+    #REMOVE
+    LST_DATA_ALL <- furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), 
+                                       ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    LST_DATA_MERGE <- furrr::future_map2(.x = LST_DATA_MERGE, .y = names(LST_DATA_MERGE), 
+                                        ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    LST_DATA <- furrr::future_map2(.x = LST_DATA, .y = names(LST_DATA), 
+                                  ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    LST_VAR <- furrr::future_map2(.x = LST_VAR, .y = names(LST_VAR), 
+                                  ~deletePatientsInGroupOfVariables(list_variables = ., patientsToDelete = remove_patients_T2[[.y]]))
+    if(exists("LST_SDATA")){
+      LST_SDATA <- furrr::future_map2(.x = LST_SDATA, .y = names(LST_SDATA), 
+                                      ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    }
+    
+    future::plan("sequential")
+  }else{
+    #GET ID
+    remove_patients_T2 <- purrr::map(RES_PCA_T2, ~.$lst_outlier[[CI_T2]]$ID)
+    #REMOVE
+    LST_DATA_ALL <- purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), 
+                                       ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    LST_DATA_MERGE <- purrr::map2(.x = LST_DATA_MERGE, .y = names(LST_DATA_MERGE), 
+                                        ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    LST_DATA <- purrr::map2(.x = LST_DATA, .y = names(LST_DATA), 
+                                  ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    LST_VAR <- purrr::map2(.x = LST_VAR, .y = names(LST_VAR), 
+                           ~deletePatientsInGroupOfVariables(list_variables = ., patientsToDelete = remove_patients_T2[[.y]]))
+    if(exists("LST_SDATA")){
+      LST_SDATA <- purrr::map2(.x = LST_SDATA, .y = names(LST_SDATA), 
+                               ~deletePatients(data = ., patientsToDelete = remove_patients_T2[[.y]]))
+    }
+  }
+}else{
+  remove_patients_T2 <- NULL
+}
+```
+
+```{r update info deletion T2, results='asis'}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION_T2 <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION_T2 <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION, 
+                                                              lst_df2 = RES_BASIC_INFORMATION_T2, 
+                                                              col_name = "Deleted T2 Outliers Patients")
+
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+
+if(!DEBUG){
+  rm(RES_BASIC_INFORMATION, RES_BASIC_INFORMATION_T2)
+}
+```
+
+## Remove Outlier patients in PCA - SSR {.tabset .tabset-fade}
+
+```{r CI to remove SSR}
+#CI to remove
+CI_SSR = params$CI_SSR
+```
+
+`r ifelse(CI_SSR == "None", "Any observation will be removed.", paste0("Patients with a SSR value higher than two times ", as.numeric(CI_SSR)*100, " % confidence interval value will be removed. In case you would want to perform a manual deletion, you should star the process again without that observations."))`
+
+```{r remove SSR}
+
+if(!CI_SSR=="None"){
+  
+  CI_SSR = as.character(CI_SSR)
+  
+  if(PARALLEL){
+    n_cores <- max(future::availableCores() - 1, 1)
+    
+    if(.Platform$OS.type == "unix") {
+      future::plan("multicore", workers = min(length(RES_PCA_SSR), n_cores))
+    }else{
+      future::plan("multisession", workers = min(length(RES_PCA_SSR), n_cores))
+    }
+    
+    #GET ID
+    remove_patients_SSR <- furrr::future_map(RES_PCA_SSR, ~.$lst_outlier[[CI_SSR]]$ID)
+    #REMOVE
+    LST_DATA_ALL <- furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), 
+                                       ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    LST_DATA_MERGE <- furrr::future_map2(.x = LST_DATA_MERGE, .y = names(LST_DATA_MERGE), 
+                                        ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    LST_DATA <- furrr::future_map2(.x = LST_DATA, .y = names(LST_DATA), 
+                                  ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    LST_VAR <- furrr::future_map2(.x = LST_VAR, .y = names(LST_VAR), 
+                                  ~deletePatientsInGroupOfVariables(list_variables = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    if(exists("LST_SDATA")){
+      LST_SDATA <- furrr::future_map2(.x = LST_SDATA, .y = names(LST_SDATA), 
+                                      ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    }
+    future::plan("sequential")
+  }else{
+    #GET ID
+    remove_patients_SSR <- purrr::map(RES_PCA_SSR, ~.$lst_outlier[[CI_SSR]]$ID)
+    #REMOVE
+    LST_DATA_ALL <- purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), 
+                                       ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    LST_DATA_MERGE <- purrr::map2(.x = LST_DATA_MERGE, .y = names(LST_DATA_MERGE), 
+                                        ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    LST_DATA <- purrr::map2(.x = LST_DATA, .y = names(LST_DATA), 
+                                  ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    LST_VAR <- purrr::map2(.x = LST_VAR, .y = names(LST_VAR), 
+                           ~deletePatientsInGroupOfVariables(list_variables = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    if(exists("LST_SDATA")){
+      LST_SDATA <- purrr::map2(.x = LST_SDATA, .y = names(LST_SDATA), 
+                               ~deletePatients(data = ., patientsToDelete = remove_patients_SSR[[.y]]))
+    }
+  }
+}else{
+  remove_patients_SSR <- NULL
+}
+```
+
+## Venn Diagram: T2 and SSR outliers {.tabset .tabset-fade}
+
+```{r get venn, results='asis'}
+lst_categories <- c("T2", "SSR")
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_VENN_T2_SSR <- furrr::future_map(names(LST_DATA_ALL), ~venn_diagram_by_list(dataset_name = .,
+                                                                                  lst_names_categories = lst_categories,
+                                                                                  list_venn1 = remove_patients_T2, 
+                                                                                  list_venn2 = remove_patients_SSR,
+                                                                                  folder = FOLDER, suffix_text = "T2_SSR_outliers"))
+  future::plan("sequential")
+}else{
+  RES_VENN_T2_SSR <- purrr::map(names(LST_DATA_ALL), ~~venn_diagram_by_list(dataset_name = .,
+                                                                            lst_names_categories = lst_categories,
+                                                                            list_venn1 = remove_patients_T2, 
+                                                                            list_venn2 = remove_patients_SSR,
+                                                                            folder = FOLDER, suffix_text = "T2_SSR_outliers"))
+}
+
+names(RES_VENN_T2_SSR) <- names(LST_DATA_ALL)
+
+if(!DEBUG){
+  rm(remove_patients_T2, remove_patients_SSR)
+}
+```
+
+```{r plot venn T2_SSR, results='asis'}
+printVENNInHTML_ByTabs(lst_names = LST_DATA_ALL, lst_plots = RES_VENN_T2_SSR, multiple_plots = F)
+
+if(!DEBUG){
+  rm(RES_VENN_T2_SSR)
+}
+```
+
+## UPDATE: Outlier PCA Patients removed {.tabset .tabset-fade}
+
+```{r update info deletion SSR and T2, results='asis'}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION_SSR <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION_SSR <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION_COMBINED, 
+                                                              lst_df2 = RES_BASIC_INFORMATION_SSR, 
+                                                              col_name = "Deleted SSR Outliers Patients")
+
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+
+if(!DEBUG){
+  rm(RES_BASIC_INFORMATION_SSR)
+}
+```
+
+## Numerical Outlier Patient Correction {.tabset .tabset-fade}
+
+Currently disable.
+
+<!-- We should allow the user to replace numerical values for specific patients (shown in last analysis) or just let them to update the original database and run all procedures again... -->
+
+<!-- Debemos pensar como implementar la corrección de pacientes de ser necesario. Se podría generar otro excel con: PACIENTE-VALOR-NUENO_VALOR a rellenar de ser necesario, para todos aquellos pacientes detectados como outliers. De ser normal, el valor se deja vacío. De sustituirse, se pone otro valor. O si pones NA se transformará en NA. -->
+
+<!-- ## Numerical Outlier Patient Treatment  {.tabset .tabset-fade} -->
+
+<!-- We are going to replace outlier values in numerical variables for NA (missing values). The limits are specified by the user in an table template as it was shown in last analysis. EXPLAIN AND GENERATE THAT FILES (can we use 3Q*1.5 as default value) !!! -->
+
+<!-- También podemos usar un excel donde los pacientes con un valor superior a un límite automáticamente son descartados/valor transformado a NA. -->
+
+<!-- Eliminar pacientes o sustituirlos por NAs: Según Sonia, solo se ponen en NA cuando el valor sea incorrecto, si el valor es correcto y sigue siendo outlier, debería eliminarse el paciente bajo consideración. -->
+
+<!-- Variables with a value outside life ranges are replace by missing values. Life ranges values are presented in an extra file. If not present. This section will show nothing. -->
+
+<!-- ```{r numerical outliers to NA} -->
+
+<!-- LST_PAT_OUTSIDE_LIFE <- list() -->
+
+<!-- numericalRangesToDetectOutliers <- readNumericalRanges(path = "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/data/numericRanges.xlsx") -->
+
+<!-- multicenter_var = VAR_DDBB -->
+
+<!-- for(h in names(LST_VAR)){ -->
+
+<!--   res.outliersOutsideLive <- NULL -->
+
+<!--   d.num <- LST_VAR[[h]]$d.num -->
+
+<!--   d.cual <- LST_VAR[[h]]$d.cual -->
+
+<!--   for(cn in numericalRangesToDetectOutliers$Variable){ -->
+
+<!--     if(cn %in% colnames(d.num)){ -->
+
+<!--       MIN <-  as.numeric(numericalRangesToDetectOutliers[numericalRangesToDetectOutliers$Variable==cn, "Minimum"]) -->
+
+<!--       MAX <-  as.numeric(numericalRangesToDetectOutliers[numericalRangesToDetectOutliers$Variable==cn, "Maximum"]) -->
+
+<!--       pat <- d.num[!is.na(d.num[,cn]),cn,drop=F]<MIN -->
+
+<!--       pat.min <- rownames(pat[which(pat==T),,drop=F]) -->
+
+<!--       pat <- d.num[!is.na(d.num[,cn]),cn,drop=F]>MAX -->
+
+<!--       pat.max <- rownames(pat[which(pat==T),,drop=F]) -->
+
+<!--       if(!is.null(pat.min)){ -->
+
+<!--         df <- data.frame(Patient = pat.min, Variable = cn, -->
+
+<!--                          Type = "MIN", `Limit Value` = MIN, `Patient Value` = d.num[pat.min, cn]) -->
+
+<!--         res.outliersOutsideLive <- rbind(res.outliersOutsideLive, df) -->
+
+<!--       } -->
+
+<!--       if(!is.null(pat.max)){ -->
+
+<!--         df <- data.frame(Patient = pat.max, Variable = cn, -->
+
+<!--                          Type = "MAX", `Limit Value` = MAX, `Patient Value` = d.num[pat.max, cn]) -->
+
+<!--         res.outliersOutsideLive <- rbind(res.outliersOutsideLive, df) -->
+
+<!--       } -->
+
+<!--       if(multicenter_var %in% colnames(d.cual)){ -->
+
+<!--         hosp <- d.cual[res.outliersOutsideLive$Patient,multicenter_var] -->
+
+<!--         df <- cbind(df) -->
+
+<!--         colnames(df)[1] = multicenter_var -->
+
+<!--       } -->
+
+<!--       if(length(c(pat.min, pat.max))>0){ -->
+
+<!--         LST_VAR[[h]]$d.num[c(pat.min, pat.max), cn] <- NA #update patients value to NA OR delete PATIENTS!!! -->
+
+<!--       } -->
+
+<!--     } -->
+
+<!--   } -->
+
+<!--   LST_PAT_OUTSIDE_LIFE[[h]] <- res.outliersOutsideLive -->
+
+<!-- } -->
+
+<!-- #save_kable(res.outliersOutsideLive, FOLDER = FOLDER, name = "patients_outside_life") -->
+
+<!-- ``` -->
+
+<!-- ```{r print patients outliers by NA, results='asis'} -->
+
+<!-- printDFInHTML_ByTabs(lst_names = LST_PAT_OUTSIDE_LIFE, lst_dataframes = LST_PAT_OUTSIDE_LIFE) -->
+
+<!-- ``` -->
+
+<!-- ```{r update columns in LST_DATA_ALL} -->
+
+<!-- LST_DATA_ALL <- update_lstDF_by_lstVar(LST_DATA_ALL, LST_VAR, col_var = "d.num") -->
+
+<!-- ``` -->
+
+<!-- ## Remove NZV Variables: After Patients deletion {.tabset .tabset-fade} -->
+
+<!-- As we delete some patients, that can lead to new NZV variables. -->
+
+<!-- ```{r low number of values for one factor} -->
+
+<!-- #Clean or delete variables with low variance -->
+
+<!-- VAR_NZV_KEEP = strsplit(params$VAR_NZV_KEEP, " ")[[1]] -->
+
+<!-- VAR_NZV_KEEP <- c(VAR_NZV_KEEP, VAR_DDBB, UNITS_VAR) -->
+
+<!-- if(PARALLEL){ -->
+
+<!--   n_cores <- max(future::availableCores() - 1, 1) -->
+
+<!--   future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores)) -->
+
+<!--   RES_NZV_VAR <- furrr::future_map(LST_VAR, ~deleteZeroVarianceVariables(data = ., mustKeep = VAR_NZV_KEEP, names = "d.cual")) -->
+
+<!--   future::plan("sequential") -->
+
+<!-- }else{ -->
+
+<!--   RES_NZV_VAR <- purrr::map(LST_VAR, ~deleteZeroVarianceVariables(data = ., mustKeep = VAR_NZV_KEEP, names = "d.cual")) -->
+
+<!-- } -->
+
+<!-- LST_VAR <- update_lstDFs_by_lstDFs(lst = RES_NZV_VAR, names = "filteredData", lst_ori = LST_VAR, names.ori = "d.cual") -->
+
+<!-- ``` -->
+
+<!-- ```{r update variables NZV} -->
+
+<!-- #delete vars -->
+
+<!-- for(h in names(LST_DATA_ALL)){ -->
+
+<!--   LST_VAR_td <- RES_NZV_VAR[[h]]$variablesDeleted$Variables -->
+
+<!--   cn_h <- colnames(LST_DATA_ALL[[h]]) -->
+
+<!--   LST_DATA_ALL[[h]] <- LST_DATA_ALL[[h]][,!cn_h %in% LST_VAR_td] -->
+
+<!--   cn_h_cual <- colnames(LST_VAR[[h]]$d.cual) -->
+
+<!--   LST_VAR[[h]]$d.cual <- LST_VAR[[h]]$d.cual[,!cn_h_cual %in% LST_VAR_td] -->
+
+<!--   if(h %in% names(LST_DATA)){ -->
+
+<!--     cn_h <- colnames(LST_DATA[[h]]) -->
+
+<!--     LST_DATA[[h]] <- LST_DATA[[h]][,!cn_h %in% LST_VAR_td] -->
+
+<!--   } -->
+
+<!--   if(h %in% names(LST_DATA_MERGE)){ -->
+
+<!--     cn_h <- colnames(LST_DATA_MERGE[[h]]) -->
+
+<!--     LST_DATA_MERGE[[h]] <- LST_DATA_MERGE[[h]][,!cn_h %in% LST_VAR_td] -->
+
+<!--   } -->
+
+<!-- } -->
+
+<!-- #Drops unused factor levels -->
+
+<!-- for(db in names(LST_DATA_ALL)){ -->
+
+<!--   LST_VAR[[db]]$d.cual <- dropLevelsAllColumns(data = LST_VAR[[db]]$d.cual) #already done -->
+
+<!-- } -->
+
+<!-- rm(LST_VAR_td, RES_NZV_VAR) -->
+
+<!-- ``` -->
+
+<!-- ```{r qualdata to binary} -->
+
+<!-- if(PARALLEL){ -->
+
+<!--   n_cores <- max(future::availableCores() - 1, 1) -->
+
+<!--   future::plan("multisession", workers = min(length(LST_VAR), n_cores)) -->
+
+<!--   lst_binary <- furrr::future_map(LST_VAR, ~factorToBinary(.$d.cual)) -->
+
+<!--   future::plan("sequential") -->
+
+<!-- }else{ -->
+
+<!--   lst_binary <- purrr::map(LST_VAR, ~factorToBinary(.$d.cual)) -->
+
+<!-- } -->
+
+<!-- for(h in names(lst_binary)){ -->
+
+<!--   LST_VAR[[h]]$d.cual.binary <- lst_binary[[h]] -->
+
+<!-- } -->
+
+<!-- rm(lst_binary) -->
+
+<!-- ``` -->
+
+<!-- ```{r drop unused factor levels for binary matrix} -->
+
+<!-- #Drops unused factor levels -->
+
+<!-- for(db in names(LST_DATA_ALL)){ -->
+
+<!--   LST_VAR[[db]]$d.cual.binary <- dropLevelsAllColumns(data = LST_VAR[[db]]$d.cual.binary) #already done -->
+
+<!-- } -->
+
+<!-- #Drops NA -->
+
+<!-- for(db in names(LST_DATA_ALL)){ -->
+
+<!--   if(is.null(nrow(LST_VAR[[db]]$d.cual.binary))){ -->
+
+<!--     next -->
+
+<!--   } -->
+
+<!--   LST_NA_BINARY <- filterNAVariables(data = LST_VAR[[db]]$d.cual.binary, VALNAMAX = VAL_NAMAX,  -->
+
+<!--                                                                        keep = VAR_NA_KEEP,  -->
+
+<!--                                                                        var_per_column = 60, -->
+
+<!--                                                                        max_num_col = 2, -->
+
+<!--                                                                        separateImages = T) #already done -->
+
+<!--   LST_VAR[[db]]$d.cual.binary <- LST_NA_BINARY$new_data -->
+
+<!-- } -->
+
+<!-- rm(LST_NA_BINARY) -->
+
+<!-- ``` -->
+
+<!-- ## UPDATE: Remove NZV Variables {.tabset .tabset-fade} -->
+
+<!-- ```{r update info deletion NZV, results='asis'} -->
+
+<!-- if(PARALLEL){ -->
+
+<!--   n_cores <- max(future::availableCores() - 1, 1) -->
+
+<!--   future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores)) -->
+
+<!--   RES_BASIC_INFORMATION_NZV <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .)) -->
+
+<!--   future::plan("sequential") -->
+
+<!-- }else{ -->
+
+<!--   RES_BASIC_INFORMATION_NZV <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .)) -->
+
+<!-- } -->
+
+<!-- RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION_COMBINED,  -->
+
+<!--                                                               lst_df2 = RES_BASIC_INFORMATION_NZV,  -->
+
+<!--                                                               col_name = "Deleted NZV Variables") -->
+
+<!-- printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED) -->
+
+<!-- if(!DEBUG){ -->
+
+<!--   rm(RES_BASIC_INFORMATION_NZV) -->
+
+<!-- } -->
+
+<!-- ``` -->
+
+`r if(params$VAR_BIAS1 != ""){print("## Remove BIAS Variables: Merge Databases 1 {.tabset .tabset-fade}")}`
+
+```{r remove BIAS1}
+
+LST_BIAS_VAR_DELETED = list() 
+
+if(params$VAR_BIAS1 != ""){
+
+  #Clean or delete variables with low variance
+  RM_BIAS_VAR <- strsplit(params$VAR_BIAS1, " ")[[1]]
+  
+  if(!exists("RES_PCA_RESULTS")){
+    stop("Bias deletion cannot be removed because a we cannot found a PCA RESULTS in loaded data. Make sure you load the RData file from the previous script.")
+  }
+  
+  LST_DATA_ALL[[params$NAME_MERGE1]] <- deleteVariables(LST_DATA_ALL[[params$NAME_MERGE1]], RM_BIAS_VAR)
+  LST_DATA_MERGE[[params$NAME_MERGE1]] <- deleteVariables(LST_DATA_MERGE[[params$NAME_MERGE1]], RM_BIAS_VAR)
+  
+  LST_VAR[[params$NAME_MERGE1]] <- splitVariablesByType(data = LST_DATA_ALL[[params$NAME_MERGE1]], 
+                                                           d.cual = NULL, 
+                                                           d.num = NULL, 
+                                                           d.date = NULL, 
+                                                           d.unit = NULL, 
+                                                           UNITS_VAR = UNITS_VAR)
+  
+  lst_binary <- factorToBinary(LST_VAR[[params$NAME_MERGE1]]$d.cual)
+  LST_VAR[[params$NAME_MERGE1]]$d.cual.binary <- lst_binary
+  
+  LST_BIAS_VAR_DELETED[[params$NAME_MERGE1]] <- getVarDescDF(VAR_DESCRIPTION = VAR_DESCRIPTION, lst_cn = RM_BIAS_VAR)
+}
+```
+
+`r if(params$VAR_BIAS2 != ""){cat("## Remove BIAS Variables: Merge Databases 2 {.tabset .tabset-fade}")}`
+
+```{r remove BIAS2}
+
+if(params$VAR_BIAS2 != ""){
+
+  #Clean or delete variables with low variance
+  RM_BIAS_VAR <- strsplit(params$VAR_BIAS2, " ")[[1]]
+  
+  if(!exists("RES_PCA_RESULTS")){
+    stop("Bias deletion cannot be removed because a we cannot found a PCA RESULTS in loaded data. Make sure you load the RData file from the previous script.")
+  }
+  
+  LST_DATA_ALL[[params$NAME_MERGE2]] <- deleteVariables(LST_DATA_ALL[[params$NAME_MERGE2]], RM_BIAS_VAR)
+  LST_DATA_MERGE[[params$NAME_MERGE2]] <- deleteVariables(LST_DATA_MERGE[[params$NAME_MERGE2]], RM_BIAS_VAR)
+  
+  LST_VAR[[params$NAME_MERGE2]] <- splitVariablesByType(data = LST_DATA_ALL[[params$NAME_MERGE2]], 
+                                                           d.cual = NULL, 
+                                                           d.num = NULL, 
+                                                           d.date = NULL, 
+                                                           d.unit = NULL, 
+                                                           UNITS_VAR = UNITS_VAR)
+  
+  lst_binary <- factorToBinary(LST_VAR[[params$NAME_MERGE2]]$d.cual)
+  LST_VAR[[params$NAME_MERGE2]]$d.cual.binary <- lst_binary
+  
+  LST_BIAS_VAR_DELETED[[params$NAME_MERGE2]] <- getVarDescDF(VAR_DESCRIPTION = VAR_DESCRIPTION, lst_cn = RM_BIAS_VAR)
+}
+```
+
+`r if(params$VAR_BIAS3 != ""){cat("## Remove BIAS Variables: Merge Databases 3 {.tabset .tabset-fade}")}`
+
+```{r remove BIAS3}
+
+if(params$VAR_BIAS3 != ""){
+
+  #Clean or delete variables with low variance
+  RM_BIAS_VAR <- strsplit(params$VAR_BIAS3, " ")[[1]]
+  
+  if(!exists("RES_PCA_RESULTS")){
+    stop("Bias deletion cannot be removed because a we cannot found a PCA RESULTS in loaded data. Make sure you load the RData file from the previous script.")
+  }
+  
+  LST_DATA_ALL[[params$NAME_MERGE3]] <- deleteVariables(LST_DATA_ALL[[params$NAME_MERGE3]], RM_BIAS_VAR)
+  LST_DATA_MERGE[[params$NAME_MERGE3]] <- deleteVariables(LST_DATA_MERGE[[params$NAME_MERGE3]], RM_BIAS_VAR)
+  
+  LST_VAR[[params$NAME_MERGE3]] <- splitVariablesByType(data = LST_DATA_ALL[[params$NAME_MERGE3]], 
+                                                           d.cual = NULL, 
+                                                           d.num = NULL, 
+                                                           d.date = NULL, 
+                                                           d.unit = NULL, 
+                                                           UNITS_VAR = UNITS_VAR)
+  
+  lst_binary <- factorToBinary(LST_VAR[[params$NAME_MERGE3]]$d.cual)
+  LST_VAR[[params$NAME_MERGE3]]$d.cual.binary <- lst_binary
+  
+  LST_BIAS_VAR_DELETED[[params$NAME_MERGE3]] <- getVarDescDF(VAR_DESCRIPTION = VAR_DESCRIPTION, lst_cn = RM_BIAS_VAR)
+}
+```
+
+## BIAS Variables Removed {.tabset .tabset-fade}
+
+Next variables will be delete as the user selected.
+
+```{r print BIAS, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_MERGE, LST_BIAS_VAR_DELETED)
+if(!DEBUG){
+  rm(LST_BIAS_VAR_DELETED)
+}
+```
+
+## UPDATE: Remove BIAS Variables {.tabset .tabset-fade}
+
+Information updated after removing the variables specify by the user.
+
+```{r update info deletion BIAS, results='asis'}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION_BIAS <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION_BIAS <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION_COMBINED, 
+                                                              lst_df2 = RES_BASIC_INFORMATION_BIAS, 
+                                                              col_name = "Deleted BIAS Variables")
+
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+
+if(!DEBUG){
+  rm(RES_BASIC_INFORMATION_BIAS)
+}
+```
+
+## PCA {.tabset .tabset-fade}
+
+```{r pre-processing - PCA, include=F}
+## Selecting Variables we want to use to explain the PCA (do not want to use the variables in the PCA computation)
+# if(FLAG_DESC){
+#   OUTCOME_VAR = VAR_DESCRIPTION[VAR_DESCRIPTION$Type==params$OUTCOME_VAR_TYPE,]$Variable
+# }else{
+#   OUTCOME_VAR = NULL
+# }
+
+#OUTCOME_VAR VAR SHOULD ALREADY EXISTS
+
+# VAR_PCA_EXCLUDE <- strsplit(params$VAR_PCA_EXCLUDE, " ")[[1]]
+# VAR_PCA_EXCLUDE <- c(VAR_PCA_EXCLUDE, VAR_EVENT, VAR_DDBB)
+# 
+# if(params$EXCLUDE_OUTCOME_VAR){
+#   VAR_PCA_EXCLUDE <- c(VAR_PCA_EXCLUDE, OUTCOME_VAR)
+# }
+
+# Var VAR_PCA_EXCLUDE should be keet from last analysis
+
+real_exclude <- NULL
+
+for(ddbb in names(LST_DATA_ALL)){
+  for(cn in VAR_PCA_EXCLUDE){
+    aux_cual <- colnames(LST_VAR[[ddbb]]$d.cual.binary)[which(startsWith(colnames(LST_VAR[[ddbb]]$d.cual.binary), cn))]
+    aux_num <- colnames(LST_VAR[[ddbb]]$d.num)[which(startsWith(colnames(LST_VAR[[ddbb]]$d.num), cn))]
+    real_exclude <- c(real_exclude, aux_cual, aux_num)
+  }
+}
+
+# PCA-DATA
+LST_PCA_INPUT_RAW <- list()
+LST_PCA_INPUT <- list()
+
+for(h in names(LST_DATA_ALL)){
+  LST_PCA_INPUT_RAW[[h]] <- cbind(LST_VAR[[h]]$d.cual.binary[,!colnames(LST_VAR[[h]]$d.cual.binary) %in% real_exclude,],
+                             LST_VAR[[h]]$d.num[,!colnames(LST_VAR[[h]]$d.num) %in% real_exclude,])
+  
+  LST_PCA_INPUT[[h]] <- scale(LST_PCA_INPUT_RAW[[h]], center = T, scale = T)
+}
+```
+
+```{r run PCA, include=F}
+## PCA Ropls
+# PCA_COMP = params$PCA_COMP #5 at the moment cuase future plots have long time consuming
+
+# PCA_COMP SHOULD ALREADY EXISTS
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_PCA_INPUT), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_PCA_INPUT), n_cores))
+  }
+  
+  if(PCA_COMP==0){
+    RES_PCA_RESULTS <- furrr::future_map(LST_PCA_INPUT, ~ropls::opls(x = ., scaleC = "none", algoC = "nipals", log10L = F))
+  
+  }else{
+    RES_PCA_RESULTS <- furrr::future_map(LST_PCA_INPUT, ~ropls::opls(x = ., scaleC = "none", algoC = "nipals", predI = PCA_COMP, log10L = F))
+  }
+  future::plan("sequential")
+}else{
+  if(PCA_COMP==0){
+    RES_PCA_RESULTS <- purrr::map(LST_PCA_INPUT, ~ropls::opls(x = ., scaleC = "none", algoC = "nipals", log10L = F))
+  }else{
+    RES_PCA_RESULTS <- purrr::map(LST_PCA_INPUT, ~ropls::opls(x = ., scaleC = "none", algoC = "nipals", predI = PCA_COMP, log10L = F))
+  }
+}
+```
+
+Performing PCA to see sample distribution with their loading values using `r PCA_COMP` components.
+
+<!-- ## PCA Summary {.tabset .tabset-fade} -->
+
+<!-- ```{r plot pca results, results='asis'} -->
+
+<!-- invisible(library(ropls)) -->
+
+<!-- printPLOT_byFunction_InHTML_ByTabs(lst_names = RES_PCA_RESULTS, lst_plots = RES_PCA_RESULTS, multiple_plots = F) -->
+
+<!-- ``` -->
+
+## PCA - Variable related to each component {.tabset .tabset-fade}
+
+```{r selecting var of study in PCA}
+VAR_PCA_STUDY <- VAR_PCA_EXCLUDE
+```
+
+```{r best factor relation per component}
+RES_PCA_VARIANCE_COMP <- bestVarianceComponentOPLS(RES_PCA_RESULTS, LST_VAR, VAR_PCA_STUDY, res_matrix = T)
+```
+
+We study the analysis of variance using the next variables (not used to compute the PCA model): `r paste0(VAR_PCA_STUDY, collapse = ", ")`. Next table shows the relationship between each variable of study and the component. A significant P.value indicates that components has a strong relation with the variable.
+
+For merged databases, a bias per database could happen. In following sections we are going to study which variables are more related to that bias in order to fix it.
+
+<!-- No sé si mostrar aquellas variables más significativas por componente, o mostrar todas las variables con un P-Valor significativo. De esa manera se detectarían más casos de bias entre sources, pero también se eliminarían variables que afectan a otras características como sexo/evento...!!! -->
+
+```{r plot best variable per component, results='asis'}
+printDFInHTML_ByTabs(RES_PCA_VARIANCE_COMP, RES_PCA_VARIANCE_COMP)
+```
+
+## PCA - Scores/Loadings {.tabset .tabset-fade}
+
+```{r pca performing plots}
+# RES_PCA_SCORE_PLOTS <- list()
+# RES_PCA_LOADING_PLOTS <- list()
+# RES_PCA_SCORE_LOADING_PLOTS <- list()
+RES_PCA_BIPLOTS <- list()
+
+top_loading <- list()
+top_graterThan = 0.2
+radius = 0.3
+
+radius_biplot = 0.4
+top_loading_biplot = 10
+
+for(h in names(RES_PCA_RESULTS)){
+  for(cn in VAR_PCA_STUDY){
+    
+    if(!cn %in% colnames(LST_VAR[[h]]$d.cual)){
+      next
+    }
+    
+    aux_var <- LST_VAR[[h]]$d.cual[[cn]]
+    for(c1 in 1:(nrow(RES_PCA_RESULTS[[h]]@modelDF)-1)){
+      for(c2 in (c1+1):nrow(RES_PCA_RESULTS[[h]]@modelDF)){
+        
+        #########
+        # SCORE #
+        #########
+        # plot <- plotOPLS(pca = RES_PCA_RESULTS[[h]], comp = c(c1,c2), factor = aux_var, legend.title = cn, colorReverse = F, names = F)
+        # name <- paste0("comp",c1, "_vs_comp", c2)
+        # RES_PCA_SCORE_PLOTS[[h]][[cn]][[name]] <- plot$plot
+        
+        ###########
+        # LOADING #
+        ###########
+        # plot <- plotOPLS(RES_PCA_RESULTS[[h]], comp = c(c1,c2), mode = "loadings", factor = aux_var, legend.title = cn, 
+        #                  colorReverse = F, radius = radius, names = T, text.size = 2)
+        # name <- paste0("comp",c1, "_vs_comp", c2)
+        # RES_PCA_LOADING_PLOTS[[h]][[cn]][[name]] <- plot$plot
+        # RES_PCA_SCORE_LOADING_PLOTS[[h]][[cn]][[name]] <- ggarrange(RES_PCA_SCORE_PLOTS[[h]][[cn]][[name]], plot$plot)
+        # #select top X - top
+        # #aux_loadings <- abs(RES_PCA_RESULTS[[h]]@loadingMN[,c(c1, c2),drop=F])
+        # #index <- apply(aux_loadings, 1, function(x){any(x > top_graterThan)})
+        # #top_loading[[h]][[name]] <- as.data.frame(RES_PCA_RESULTS[[h]]@loadingMN[rownames(aux_loadings)[index],c(c1, c2),drop=F])
+        
+        ##########
+        # BIPLOT #
+        ##########
+        plot <- plotOPLS(pca = RES_PCA_RESULTS[[h]], mode = "biplot", comp = c(c1,c2), mahalanovis_limit = 20, top = top_loading_biplot,
+                           names = T, factor = aux_var, radius = radius_biplot, legend.title = cn, colorReverse = F, text.size = 2)
+        name <- paste0("comp",c1, "_vs_comp", c2)
+        RES_PCA_BIPLOTS[[h]][[cn]][[name]] <- plot$plot
+      }
+    }
+  }
+}
+
+rm(plot, top_loading) #, aux_loadings
+```
+
+Colored points represent observation and black points represent variables. For those variables that belong to the top `r (1-radius_biplot)*100` % with the highest loadings (in absolute value), the name is displayed.
+
+```{r plot score/loadings, results='asis', dpi=300, fig.retina=1, fig.width=1080/300, fig.height=1440/300, out.width="100%"}
+printGGPLOTInHTML_ByTabs3LEVELS(lst_names = RES_PCA_BIPLOTS, lst_plots = RES_PCA_BIPLOTS)
+
+rm(RES_PCA_SCORE_PLOTS, RES_PCA_LOADING_PLOTS, RES_PCA_SCORE_LOADING_PLOTS, RES_PCA_BIPLOTS)
+```
+
+## PCA - Variables related to database BIAS {.tabset .tabset-fade}
+
+Next table shows, per each merged database, which variables are more related to create a bias between the different sources. P-value and Adj.P-Value are performed by a Chi2 test (for qualitative variables) and Kruscal-Wallis test (for numerical variables) against `r VAR_DDBB` (source variable). Next columns are the loading values each variable reach for each of the PCA components where the variable `r VAR_DDBB` has been found significant.
+
+Adjusted P-Value has been perform by FDR method for all P-values at the same time (qualitative + numerical variables).
+
+```{r get high bias}
+# ONLY IF MERGE DATABASE!!! IF UNIQUE DATA THIS CHUNK HAS NO SENSE!!!
+
+exclude_bias = NULL #should be a param!!!
+
+#get loadings for significant components
+RES_VAR_BIAS <- purrr::map(names(LST_DATA_MERGE), ~getHighBiasTest(pca_result = RES_PCA_RESULTS[[.]], 
+                                                                   res_qual_results = RES_QUAL_RESULTS[[.]],
+                                                                   res_num_results = RES_NUM_RESULTS[[.]],
+                                                                   comp_variance = RES_PCA_VARIANCE_COMP[[.]], 
+                                                                   bias_var = VAR_DDBB, VAR_DESCRIPTION, alpha = 0.05, 
+                                                                   exclude = exclude_bias))
+
+names(RES_VAR_BIAS) <- names(LST_DATA_MERGE)
+```
+
+```{r plot high bias per variable and component, results='asis'}
+printDFInHTML_ByTabs(RES_VAR_BIAS, RES_VAR_BIAS)
+```
+
+## PCA Summary - T2 Hotelling {.tabset .tabset-fade}
+
+Hotelling's T2-test is used for the detection of severe anomalies that can influence the creation of the PCA model. Confidence intervals at 0.95, 0.99 and 0.999 have been studied.
+
+T2 score is an approximation and each observation have to be studied in order to remove or not from the analysis.
+
+```{r t2 sample outliers}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }
+  
+  RES_PCA_T2 <- furrr::future_map(RES_PCA_RESULTS, ~pcaT2(model = ., n.comp = 2, conf = c(0.95, 0.99, 0.999), strict = T))
+  future::plan("sequential")
+}else{
+  RES_PCA_T2 <- purrr::map(RES_PCA_RESULTS, ~pcaT2(model = ., n.comp = 2, conf = c(0.95, 0.99, 0.999), strict = T))
+}
+```
+
+```{r T2 plot, results='asis'}
+printPLOT_byFunction_InHTML_ByTabs(lst_names = RES_PCA_T2, lst_plots = RES_PCA_T2, names = "plot", multiple_plots = F)
+```
+
+## PCA Summary - T2 - Outliers {.tabset .tabset-fade}
+
+In order to be more strict, only those patients that have a value two times greater than the specific confidence interval limit are detected as outliers (observation T2 value \>= 2\*CI value).
+
+```{r T2 outliers, results='asis'}
+printDFInHTML_ByTabs(lst_names = RES_PCA_T2, lst_dataframes = RES_PCA_T2, names = "lst_outlier", multiple_df = T)
+```
+
+## PCA Summary - T2 Contribution {.tabset .tabset-fade}
+
+Showed 0.99 confidence interval variable contribution. Next graph shows which variables are more related to classify the patient as an outlier. The patients that are shown are those with a value two times higher than the confidence interval limit at 0.99.
+
+```{r T2 variable contribution to outlier values}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }
+  
+  RES_PCA_T2_CONTR <- furrr::future_map2(.x = RES_PCA_RESULTS, .y = names(RES_PCA_RESULTS), ~contribT2(model = ., 
+                                                                                          observ = RES_PCA_T2[[.y]]$lst_outlier$`0.99`))
+  future::plan("sequential")
+}else{
+  RES_PCA_T2_CONTR <- purrr::map2(.x = RES_PCA_RESULTS, .y = names(RES_PCA_RESULTS), ~contribT2(model = ., 
+                                                                                          observ = RES_PCA_T2[[.y]]$lst_outlier$`0.99`))
+}
+```
+
+```{r T2 plot contribution, results='asis'}
+printPLOT_byFunction_InHTML_ByTabs(lst_names = RES_PCA_T2_CONTR, lst_plots = RES_PCA_T2_CONTR, names = "lst_plot", multiple_plots = T, limit_plots = 10)
+```
+
+## PCA Summary - T2 Contribution - Top 5 most influential variables {.tabset .tabset-fade}
+
+Next table shows a sorted frequency table where you can see which are the variables more related to outlier patients.
+
+```{r T2 top5, results='asis'}
+printDFInHTML_ByTabs(lst_names = RES_PCA_T2_CONTR, lst_dataframes = RES_PCA_T2_CONTR, names = "top5")
+```
+
+## PCA Summary - SSR {.tabset .tabset-fade}
+
+Sum of squares due to regression is used for the detection of subjects poorly explained by the model that are usually considered as moderate outliers. Confidence intervals at 0.95, 0.99 and 0.999 have been studied.
+
+SSR score is an approximation and each observation have to be studied in order to remove or not from the analysis.
+
+```{r SSR sample outliers}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }
+  
+  RES_PCA_SSR <- furrr::future_map(RES_PCA_RESULTS, ~pcaSSR(model = ., conf = c(0.95, 0.99, 0.999), strict = T))
+  future::plan("sequential")
+}else{
+  RES_PCA_SSR <- purrr::map(RES_PCA_RESULTS, ~pcaSSR(model = ., conf = c(0.95, 0.99, 0.999), strict = T))
+}
+```
+
+```{r SSR plot, results='asis'}
+printPLOT_byFunction_InHTML_ByTabs(lst_names = RES_PCA_SSR, lst_plots = RES_PCA_SSR, names = "plot", multiple_plots = F)
+```
+
+## PCA Summary - SSR - Outliers {.tabset .tabset-fade}
+
+In order to be more strict, only those patients that have a value two times greater than the specific confidence interval limit are detected as outliers (observation SSR value \>= 2\*CI value).
+
+```{r SSR outliers, results='asis'}
+printDFInHTML_ByTabs(lst_names = RES_PCA_SSR, lst_dataframes = RES_PCA_SSR, names = "lst_outlier", multiple_df = T)
+```
+
+## PCA Summary - SSR Contribution {.tabset .tabset-fade}
+
+Showed 0.99 confidence interval variable contribution. Next graph shows which variables are more related to classify the patient as an outlier. The patients that are shown are those with a value two times higher than the confidence interval limit at 0.99.
+
+```{r SSR variable contribution to outlier values}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(RES_PCA_RESULTS), n_cores))
+  }
+  
+  RES_PCA_SSR_CONTR <- furrr::future_map2(.x = RES_PCA_RESULTS, .y = names(RES_PCA_SSR), ~contribSSR(model = ., 
+                                                                                          observ = RES_PCA_SSR[[.y]]$lst_outlier$`0.99`, 
+                                                                                          plots = T))
+  future::plan("sequential")
+}else{
+  RES_PCA_SSR_CONTR <- purrr::map2(.x = RES_PCA_RESULTS, .y = names(RES_PCA_SSR), ~contribSSR(model = ., 
+                                                                                          observ = RES_PCA_SSR[[.y]]$lst_outlier$`0.99`, 
+                                                                                          plots = T))
+}
+
+rm(df)
+```
+
+```{r SSR contribution plot, results='asis'}
+printPLOT_byFunction_InHTML_ByTabs(lst_names = RES_PCA_SSR_CONTR, lst_plots = RES_PCA_SSR_CONTR, names = "lst_plot", multiple_plots = T)
+```
+
+## PCA Summary - SSR Contribution - Top 5 most influential variables {.tabset .tabset-fade}
+
+Next table shows a sorted frequency table where you can see which are the variables more related to outlier patients.
+
+```{r SSR top5, results='asis'}
+printDFInHTML_ByTabs(lst_names = RES_PCA_SSR_CONTR, lst_dataframes = RES_PCA_SSR_CONTR, names = "top5", custom_msg = "No patients with problems related to SSR.")
+```
+
+## Save Process {.tabset .tabset-fade}
+
+Databases are saved in .RData and .xlsx format with their new colnames. Excel format does not save the same R class for each variable. We recommend to work with .RData files in case you want to do your own study.
+
+```{r save process, include=F}
+library(openxlsx)
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+  future::plan("sequential")
+}else{
+  purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+}
+
+rm(params)
+rm(list = ls.str(mode = 'numeric')[str_detect(ls.str(mode = "numeric"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'character')[str_detect(ls.str(mode = "character"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'logical')[str_detect(ls.str(mode = "logical"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'NULL')[str_detect(ls.str(mode = "NULL"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'function'))
+```
+
+```{r saveData filtered, results="hide", include=F}
+if(!DEBUG){
+  rm(DEBUG)
+  save.image(paste0(FOLDER,"OutliersAndBiasCorrection.output.RData"))
+}
+```

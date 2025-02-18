@@ -1,0 +1,505 @@
+---
+title: "Harmonization"
+author: "Pedro Salguero"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+params:
+  HP_output: 
+    label: "Harmonization Problems Output: (should be a RData)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/1.Harmonization_Problems/harmonization_problems.output.RData"
+    input: file
+  excel_cat1: 
+    label: "Path of Dataset 2 vs Reference Excel File: (should be a .xlsx file with the information complete by yourself)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/1.Harmonization_Problems/Humanitas2Calabria_fixed.xlsx"
+    input: file
+  excel_cat2: 
+    label: "Path of Dataset 3 vs Reference Excel File: (should be a .xlsx file with the information complete by yourself)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/1.Harmonization_Problems/Monza2Calabria_fixed.xlsx"
+    input: file
+  excel_cat3: 
+    label: "Path of Dataset 4 vs Reference Excel File: (should be a .xlsx file with the information complete by yourself)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/1.Harmonization_Problems/Spain2Calabria_fixed.xlsx"
+    input: file
+  excel_cat4:
+    label: "Path of Dataset 5 vs Reference Excel File: (should be a .xlsx file with the information complete by yourself)"
+    value: "NA"
+    input: file
+  NAME_MERGE1:
+    label: "Name for merge database:"
+    value: "Italian"
+    input: text
+  NAME_DDBB1:
+    label: "Which databases should be joined? (use exact names appear in the Excel template separated by spaces)"
+    value: "Calabria Humanitas Monza"
+    input: text
+  NAME_MERGE2:
+    label: "Name for merge database:"
+    value: "European"
+    input: text
+  NAME_DDBB2:
+    label: "Which databases should be joined? (use exact names appear in the Excel template separated by spaces)"
+    value: "Calabria Humanitas Monza Spain"
+    input: text
+  NAME_MERGE3:
+    label: "Name for merge database:"
+    value: ""
+    input: text
+  NAME_DDBB3:
+    label: "Which databases should be joined? (use exact names appear in the Excel template separated by spaces)"
+    value: ""
+    input: text
+  MERGE_METHOD: 
+    label: "Do you want to merge the databases using only the variables in common? If not, all variables from reference will be keeped (not recomended)."
+    value: TRUE
+  FUNCTIONS_PATH: 
+    label: "Folder path with all function scripts: (select any file)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/scripts/functions/1.Functions.R"
+    input: file
+  OUTPUT: 
+    label: "Output path: (a folder with the results will be create inside this folder)"
+    value: "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/results/"
+    input: text
+  PARALLEL: 
+    label: "Do you want to run the script with multicore option?"
+    value: TRUE
+---
+
+```{r new max size, message=F, eval=F, include=F, results='hide'}
+#If your file is greater than 5Mb, update the maximum size
+new_size = 30 #Mb
+options(shiny.maxRequestSize=new_size*1024^2)
+rm(new_size)
+```
+
+```{r setup, message=F, include=F, results='hide'}
+# Chunk options - ALREADY IN GGPLOT2 SOURCE
+knitr::opts_chunk$set(
+ echo=F,
+ warning=F,
+ message=F, 
+ error = F
+)
+
+dpi = 300
+
+knitr::opts_chunk$set(
+ dpi=dpi, 
+ fig.retina=1, 
+ fig.width=1440/dpi, #4:3 FHD
+ fig.height=1080/dpi, 
+ out.width="100%"
+)
+
+rm(dpi)
+```
+
+```{r functions}
+#Load REPORT functions
+loadReportFunctions <- function(path){
+  file <- paste0(path,"0.ReportFunctions.R")
+  source(file, echo = F)
+}
+
+#Load 1.Functions functions
+loadFunctions_1 <- function(path){
+  file <- paste0(path,"1.Functions.R")
+  source(file, echo = F)
+}
+
+#Load 2.Functions functions
+loadFunctions_2 <- function(path){
+  file <- paste0(path,"2.Functions.R")
+  source(file, echo = F)
+}
+
+#Get CSS Style
+getCSS_file <- function(path){
+  files <- list.files(path)
+  file <- files[which(endsWith(files, ".css"))]
+  return(paste0(path, file))
+}
+
+#Load ggplot theme
+loadGgplotTheme <- function(path){
+  file <- paste0(path,"ggplot_theme.R")
+  source(file, echo = F)
+}
+
+loadFunctions <- function(path){
+  loadReportFunctions(path)
+  loadFunctions_1(path)
+  loadFunctions_2(path)
+  loadGgplotTheme(path)
+  rmarkdown::html_document(css = getCSS_file(path))
+}
+```
+
+```{r libraries}
+library(readxl, quietly = T)
+library(openxlsx, quietly = T)
+library(future, quietly = T)
+library(VennDiagram, quietly = T)
+library(UpSetR, quietly = T)
+library(furrr, quietly = T)
+library(ggplot2, quietly = T)
+library(RColorConesa, quietly = T)
+library(kableExtra, quietly = T)
+library(stringr, quietly = T)
+library(dplyr, quietly = T)
+library(grid, quietly = T)
+library(RColorConesa, quietly = T)
+library(stringdist, quietly = T)
+```
+
+<!-- 
+#########
+# INPUT #
+#########
+-->
+
+```{r load all functions, include=F}
+#It will fail in other OS
+if(endsWith(params$FUNCTIONS_PATH, "/")){
+  loadFunctions(params$FUNCTIONS_PATH)
+}else{
+  index <- gregexpr("/", params$FUNCTIONS_PATH)[[1]]
+  index <- index[length(index)]
+  fpath <- substr(params$FUNCTIONS_PATH, 1, index)
+  loadFunctions(fpath)
+}
+```
+
+<!-- 
+##########
+# 1.DATA #
+##########
+-->
+
+```{r readData - 1}
+if(endsWith(params$HP_output, ".RData") | endsWith(params$HP_output, ".RDS")){
+  load(params$HP_output)
+}else{
+  stop("Harmonization Problems output must be the .RData object (called harmonization_problems.output).")
+}
+```
+
+```{r FOLDER for save results}
+FOLDER <- paste0(ifelse(endsWith(params$OUTPUT, "/"),params$OUTPUT,paste0(params$OUTPUT, "/")),"2.Harmonization/")
+dir.create(FOLDER)
+```
+
+```{r NAMES_REFERENCE}
+PARALLEL = as.logical(params$PARALLEL)
+```
+
+<!-- 
+########################
+# READ CATEGORY EXCELS #
+########################
+-->
+
+```{r update categories}
+name_files <- c(params$excel_cat1, params$excel_cat2, params$excel_cat3, params$excel_cat4)
+name_files <- name_files[!name_files=="NA"]
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(name_files), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(name_files), n_cores))
+  }
+  
+  lst_excel <- furrr::future_map(name_files, ~openxlsx::read.xlsx(., colNames = F, rowNames = F))
+  future::plan("sequential")
+}else{
+  lst_excel <- purrr::map(name_files, ~openxlsx::read.xlsx(., colNames = F, rowNames = F))
+}
+
+names(lst_excel) <- NAMES_NOT_REFERENCE
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA[NAMES_NOT_REFERENCE]), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA[NAMES_NOT_REFERENCE]), n_cores))
+  }
+  
+  lst_fixed <- furrr::future_map2(.x = LST_DATA[NAMES_NOT_REFERENCE], 
+                         .y = lst_excel, 
+                         ~updateFactorExcel(.x, .y))
+  future::plan("sequential")
+}else{
+  lst_fixed <- purrr::map2(.x = LST_DATA[NAMES_NOT_REFERENCE], 
+                         .y = lst_excel, 
+                         ~updateFactorExcel(.x, .y))
+}
+
+lst_fixed[[NAMES_REFERENCE]] <- LST_DATA[[NAMES_REFERENCE]]
+lst_fixed <- lst_fixed[c(4,1,2,3)]
+
+rm(name_files, lst_excel)
+```
+
+<!-- 
+########################################
+# Update REFERENCE with new CATEGORIES #
+########################################
+-->
+
+## Reference Variables with new Categories/Levels {.tabset .tabset-fade}
+
+It has been added new categories for the following variables:
+
+```{r update NAMES_REFERENCE levels}
+cn_factor <- getFactorNames(lst_fixed[[NAMES_REFERENCE]])
+
+var_updated <- NULL
+
+for(cn in cn_factor){
+  lvl_ref <- levels(lst_fixed[[NAMES_REFERENCE]][,cn])
+  
+  lvl_others <- NULL
+  for(db in NAMES_NOT_REFERENCE){
+    if(cn %in% colnames(lst_fixed[[db]])){
+      lvl_others <- c(lvl_others, levels(lst_fixed[[db]][,cn]))
+    }
+  }
+  lvl_others <- unique(lvl_others)
+  
+  if(all(lvl_others %in% lvl_ref)){
+    next
+  }else{
+    lvl_new <- lvl_others[!lvl_others %in% lvl_ref]
+  }
+  
+  lst_fixed[[NAMES_REFERENCE]] <- addFactors(lst_fixed[[NAMES_REFERENCE]], cn, lvl_new)
+  var_updated <- c(var_updated, cn)
+}
+
+df_var_updated <- getVarDescDF(VAR_DESCRIPTION, var_updated)
+RES_VAR_UPDATED <- list("New Categories" = df_var_updated)
+
+rm(cn_factor, df_var_updated)
+```
+
+```{r plot info7, results='asis'}
+printDFInHTML_ByTabs(lst_names = names(RES_VAR_UPDATED), lst_dataframes = RES_VAR_UPDATED)
+rm(RES_VAR_UPDATED)
+```
+
+<!-- ################# -->
+<!-- # JOIN DATASETS # -->
+<!-- ################# -->
+
+## Databases have been merged {.tabset .tabset-fade}
+
+```{r names to merge}
+HOWTOMERGE <- list(strsplit(params$NAME_DDBB1, " ")[[1]], strsplit(params$NAME_DDBB2, " ")[[1]], strsplit(params$NAME_DDBB3, " ")[[1]])
+
+#NAMES MUST BE IN NAMES_DDBB
+empty <- NULL
+for(ddbb_m in 1:length(HOWTOMERGE)){
+  empty <- c(empty, length(HOWTOMERGE[[ddbb_m]])==0)
+  if(!empty & !all(HOWTOMERGE[[ddbb_m]] %in% NAMES_DDBB)){
+    stop(paste0("Names of Databases to merge must be some of the follows: ", NAMES_DDBB))
+  }
+}
+
+HOWTOMERGE[empty] <- NULL
+
+NAMES_MERGE <- c(params$NAME_MERGE1, params$NAME_MERGE2, params$NAME_MERGE3)
+
+empty = nchar(NAMES_MERGE)==0
+NAMES_MERGE <- NAMES_MERGE[!empty]
+
+if(length(NAMES_MERGE) != length(HOWTOMERGE)){
+  stop(paste0("You provided a total of ", length(NAMES_MERGE), " (", paste0(NAMES_MERGE, collapse = ", "), ") names and ", length(HOWTOMERGE), " ways of merge."))
+}
+
+names(HOWTOMERGE) <- NAMES_MERGE
+```
+
+The new databases with all the information merged are called: `r NAMES_MERGE`.
+
+```{r}
+merged_method <- params$MERGE_METHOD
+```
+
+`r ifelse(merged_method, "The databases are merged using the common variables between all sources.", "The databases are merged using all the variables the reference database has. If a new database does not have those variables, a new column will be created with all the values as missing values.")`
+
+```{r joinDataSets}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(lst_fixed), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(lst_fixed), n_cores))
+  }
+  
+  lst_namevars <- furrr::future_map(lst_fixed, ~colnames(.))
+  future::plan("sequential")
+}else{
+  lst_namevars <- purrr::map(lst_fixed, ~colnames(.))
+}
+
+#intersect 1:2
+intersect_vars <- list()
+for(h in names(HOWTOMERGE)){
+  intersect_vars[[h]] <- intersect(lst_namevars[[HOWTOMERGE[[h]][[1]]]], lst_namevars[[HOWTOMERGE[[h]][[2]]]])
+  if(length(HOWTOMERGE[[h]])>2){
+    for(i in 3:length(HOWTOMERGE[[h]])){
+      intersect_vars[[h]] <- intersect(intersect_vars[[h]], lst_namevars[[HOWTOMERGE[[h]][[i]]]])
+    }
+  }
+}
+
+lst_merge <- list()
+for(db in names(HOWTOMERGE)){
+  aux <- NULL
+  for(data_name in names(lst_fixed)){
+    if(data_name %in% HOWTOMERGE[[db]]){
+      if(merged_method){
+        aux <- dplyr::bind_rows(aux, lst_fixed[[data_name]][,intersect_vars[[db]]]) #original datasets merge
+      }else{
+        aux <- dplyr::bind_rows(aux, lst_fixed[[data_name]]) #original datasets merge
+      }
+    }
+  }
+  lst_merge[[db]] <- aux
+}
+
+rm(aux, HOWTOMERGE)
+
+####
+# NOW, NAMES_REFERENCES KEEP ALL COLUMNS, if merged_method == F
+# and KEEP INTERSECTION if merged_method = T
+####
+```
+
+A new variable call "SOURCE" has been created to identify from which database are each sample.
+
+```{r create SOURCE variable to indentify from which ddbb come each patient}
+VAR_DDBB <- "SOURCE"
+
+for(db in names(lst_merge)){
+  lst_merge[[db]][,VAR_DDBB] <- NA
+  data <- lst_merge[[db]]
+  for(db_name in names(lst_fixed)){
+    index <- which(rownames(data) %in% rownames(lst_fixed[[db_name]]))
+    data$SOURCE[index] <- db_name
+    lst_merge[[db]] <- data
+  }
+  lst_merge[[db]][,VAR_DDBB] <- as.factor(lst_merge[[db]][,VAR_DDBB])
+}
+
+#add variable to list
+VAR_DESCRIPTION <- addVarInfo(VAR_DESCRIPTION, VAR_DDBB, "SOURCE to identify original database", "OTHER")
+
+rm(data)
+```
+
+```{r new structe}
+LST_DATA <- lst_fixed
+LST_DATA_MERGE <- lst_merge
+LST_DATA_ALL <- append(LST_DATA, LST_DATA_MERGE)
+
+rm(lst_fixed, lst_merge)
+```
+
+## Drop unused levels {.tabset .tabset-fade}
+
+After merged, we can removed unused levels for categorical variables. Categorical variables with just one factor or category will be detected and removed because do not provide useful information.
+
+```{r drop unused factor levels}
+#Drops unused factor levels
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL <- furrr::future_map(LST_DATA_ALL, ~dropLevelsAllColumns(data = .))
+  LST_DATA <- furrr::future_map(LST_DATA, ~dropLevelsAllColumns(data = .))
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~dropLevelsAllColumns(data = .))
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL <- purrr::map(LST_DATA_ALL, ~dropLevelsAllColumns(data = .))
+  LST_DATA <- purrr::map(LST_DATA, ~dropLevelsAllColumns(data = .))
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~dropLevelsAllColumns(data = .))
+}
+```
+
+## Basic Information - Merged Data {.tabset .tabset-fade}
+
+```{r basic information}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+```
+
+```{r plot info - basic information, results='asis'}
+printDFInHTML_ByTabs(RES_BASIC_INFORMATION, RES_BASIC_INFORMATION)
+```
+
+## Save Process {.tabset .tabset-fade}
+
+Databases are saved in .RData and .xlsx format with their new colnames. Excel format does not save the same R class for each variable. We recommend to work with .RData files in case you want to do your own study.
+
+```{r save data, include=F}
+library(openxlsx)
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+  future::plan("sequential")
+}else{
+  purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+}
+
+rm(params)
+rm(list = ls.str(mode = 'numeric')[str_detect(ls.str(mode = "numeric"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'character')[str_detect(ls.str(mode = "character"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'logical')[str_detect(ls.str(mode = "logical"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'NULL')[str_detect(ls.str(mode = "NULL"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'function'))
+```
+
+```{r saveData workspace, results="hide", include=F}
+save.image(paste0(FOLDER,"harmonization.output.RData"))
+```

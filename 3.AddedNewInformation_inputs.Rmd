@@ -1,0 +1,1174 @@
+---
+title: "Adding Variables and Filtering Data - By User"
+author: "Pedro Salguero"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+    toc_depth: 4
+editor_options:
+  chunk_output_type: inline
+---
+
+```{r setup, message=F, include=F, results='hide'}
+# Chunk options - ALREADY IN GGPLOT2 SOURCE
+knitr::opts_chunk$set(
+ echo=F,
+ warning=F,
+ message=F, 
+ error = F
+)
+
+dpi = 300
+
+knitr::opts_chunk$set(
+ dpi=dpi, 
+ fig.retina=1, 
+ fig.width=1440/dpi, #4:3 FHD
+ fig.height=1080/dpi, 
+ out.width="100%"
+)
+
+rm(dpi)
+```
+
+```{r path}
+PROJECT_PATH <- NULL
+if(.Platform$OS.type == "unix") {
+  PROJECT_PATH <- "~/MEGA/Doctorado/Otros proyectos/COVID19/"
+} else {
+  PROJECT_PATH <- "D:/Pedro/Mega/Doctorado/Otros proyectos/COVID19/"
+}
+
+FUNCTIONS_PATH <- NULL
+if(.Platform$OS.type == "unix") {
+  FUNCTIONS_PATH <- "~/MEGA/Doctorado/Otros proyectos/"
+} else {
+  FUNCTIONS_PATH <- "D:/Pedro/Mega/Doctorado/Otros proyectos/"
+}
+```
+
+```{r functions}
+#Load some harmonisation functions
+loadHarmonisationFunctions <- function(path){
+  file <- paste0(path,"HarmonisationFunctions.R")
+  source(file, echo = F)
+}
+#Load some miscellaneous functions
+loadMiscellaneousFunctions <- function(path){
+  file <- paste0(path,"MiscellaneousFunctions.R")
+  source(file, echo = F)
+}
+#Load exploratory custom functions
+loadExploratoryFunctions <- function(path){
+  file <- paste0(path,"ExploratoryAnalysisFunctions.R")
+  source(file, echo = F)
+}
+#Load survival custom functions
+loadSurvivalFunctions <- function(path){
+  file <- paste0(path,"SurvivalFunctions.R")
+  source(file, echo = F)
+}
+#Load ggplot theme
+loadGgplotTheme <- function(path){
+  file <- paste0(path,"ggplot_theme.R")
+  source(file, echo = F)
+}
+
+#Get CSS Style
+getCSS_file <- function(path){
+  files <- list.files(path)
+  file <- files[which(endsWith(files, ".css"))]
+  return(paste0(path, file))
+}
+
+loadFunctions <- function(path){
+  loadSurvivalFunctions(path)
+  loadMiscellaneousFunctions(path)
+  loadHarmonisationFunctions(path)
+  loadExploratoryFunctions(path)
+  loadGgplotTheme(path)
+  rmarkdown::html_document(css = getCSS_file(path))
+}
+```
+
+```{r load all functions, include=F}
+loadFunctions(FUNCTIONS_PATH)
+```
+
+```{r libraries, include=F}
+library(Hmisc, quietly = T)
+library(ggplot2, quietly = T)
+library(ggrepel, quietly = T)
+library(tidyverse, quietly = T)
+library(factoextra, quietly = T)
+library(logisticPCA, quietly = T)
+library(viridis, quietly = T)
+library(stringr, quietly = T)
+library(kableExtra, quietly = T)
+library(rmarkdown, quietly = T)
+library(knitr, quietly = T)
+library(tinytex, quietly = T)
+library(kableExtra, quietly = T)
+library(ggpubr, quietly = T)
+library(readxl, quietly = T)
+library(plyr, quietly = T)
+library(VennDiagram, quietly = T)
+library(RColorConesa, quietly = T)
+library(stringdist, quietly = T)
+```
+
+<!-- 
+##################
+# READ LAST DATA #
+##################
+-->
+
+```{r readData}
+LAST_FOLDER <- paste0(PROJECT_PATH, "results/2.Harmonization/")
+load(paste0(LAST_FOLDER,"harmonization.output.RData"))
+rm(LAST_FOLDER)
+```
+
+```{r FOLDER save results}
+FOLDER <- paste0(PROJECT_PATH,"results/3.Adding_Information/")
+dir.create(FOLDER)
+```
+
+```{r NAMES_REFERENCE}
+# NAMES_REFERENCE <- colnames(VAR_TRANSLATION)[4]
+# NAMES_NOT_REFERENCE <- colnames(VAR_TRANSLATION)[5:ncol(VAR_TRANSLATION)]
+# NAMES_DDBB <- names(LST_DATA)
+# NAMES_MERGE <- names(LST_DATA_MERGE)
+
+PARALLEL = TRUE
+```
+
+## Creating new variables from current data
+
+### Symtoms day before Admission
+
+Numerical variable that indicates how many days of symptoms each patients had before hospital admission.
+
+```{r day until admission, echo=F, warning=F}
+var_name <- "SymptomsDays"
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  lst_S2A <- furrr::future_map(LST_DATA_ALL, ~getSymptoms2AdmissionDays(.))
+  future::plan("sequential")
+}else{
+  lst_S2A <- purrr::map(LST_DATA_ALL, ~getSymptoms2AdmissionDays(.))
+}
+
+for(db in names(lst_S2A)){
+  if(db %in% names(LST_DATA)){
+    LST_DATA[[db]][,var_name] <- lst_S2A[[db]]
+  }
+  if(db %in% names(LST_DATA_MERGE)){
+    LST_DATA_MERGE[[db]][,var_name] <- lst_S2A[[db]]
+  }
+  if(db %in% names(LST_DATA_ALL)){
+    LST_DATA_ALL[[db]][,var_name] <- lst_S2A[[db]]
+  }
+}
+
+#add variable to list
+VAR_DESCRIPTION <- addVarInfo(VAR_DESCRIPTION, "SymptomsDays", "How many days between first Symptoms and the Admission", "INDIVIDUAL_INFORMATION_VAR")
+
+rm(lst_S2A)
+```
+
+### Sum of Comorbidities
+
+Numerical variable which count the number of comorbidities each patient have. To be a Former Smoker counts as 0,5.
+
+```{r add sum of comorbidities, echo=F, warning=F}
+var_name <- "comorbidities"
+
+specialTreatment <- c("smoking_mhyn", "otherrisktext")
+COMORBIDITIES_RISKFACTORS_VAR <- VAR_DESCRIPTION[VAR_DESCRIPTION$Type=="COMORBIDITIES_RISKFACTORS_VAR",]$Variable
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  lst_CC <- furrr::future_map(LST_DATA_ALL, ~getComorbititieCount(., COMORBIDITIES_RISKFACTORS_VAR, specialTreatment))
+  future::plan("sequential")
+}else{
+  lst_CC <- purrr::map(LST_DATA_ALL, ~getComorbititieCount(., COMORBIDITIES_RISKFACTORS_VAR, specialTreatment))
+}
+
+for(db in names(lst_CC)){
+  if(db %in% names(LST_DATA)){
+    LST_DATA[[db]][,var_name] <- lst_CC[[db]]
+  }
+  if(db %in% names(LST_DATA_MERGE)){
+    LST_DATA_MERGE[[db]][,var_name] <- lst_CC[[db]]
+  }
+  if(db %in% names(LST_DATA_ALL)){
+    LST_DATA_ALL[[db]][,var_name] <- lst_CC[[db]]
+  }
+}
+
+#add variable to list
+VAR_DESCRIPTION <- addVarInfo(VAR_DESCRIPTION, "comorbidities", "Quantity of comorbidities - (Former Smoker = 0.5)", "INDIVIDUAL_INFORMATION_VAR")
+rm(lst_CC)
+```
+
+### P/F variable
+
+New numerical variable related to the ratio of arterial oxygen partial pressure (PaO2 in mmHg) to fractional inspired oxygen (FiO2 expressed as a fraction, not a percentage).
+
+```{r get P/F (PaO2/FiO2), echo=F, warning=F}
+#############
+# P/F VALUE #
+#############
+
+#PaO2/FiO2 ratio is the ratio of arterial oxygen partial pressure (PaO2 in mmHg) to fractional inspired oxygen (FiO2 expressed as a fraction, not a percentage)
+PoverF <- function(data, PaO2_var = "daily_pao2_lborres", Fi02_var = "daily_fio2_lborres"){
+  if(all(c(PaO2_var, Fi02_var) %in% colnames(data))){
+    return(data$daily_pao2_lborres / data$daily_fio2_lborres)
+  }
+}
+
+var_name <- "PaO2overFiO2"
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  lst_PF <- furrr::future_map(LST_DATA_ALL, ~PoverF(.))
+  future::plan("sequential")
+}else{
+  lst_PF <- purrr::map(LST_DATA_ALL, ~PoverF(.))
+}
+
+for(db in names(lst_PF)){
+  if(db %in% names(LST_DATA)){
+    LST_DATA[[db]][,var_name] <- lst_PF[[db]]
+  }
+  if(db %in% names(LST_DATA_MERGE)){
+    LST_DATA_MERGE[[db]][,var_name] <- lst_PF[[db]]
+  }
+  if(db %in% names(LST_DATA_ALL)){
+    LST_DATA_ALL[[db]][,var_name] <- lst_PF[[db]]
+  }
+}
+
+#add variable to list
+VAR_DESCRIPTION <- addVarInfo(VAR_DESCRIPTION, "PaO2overFiO2", "P/F (PaO2/FiO2)", "DAY1_VAR")
+rm(lst_PF)
+```
+
+# Filtering
+
+From here we are going to filter some patients that do not meet the condutions doctors establish. It is not a procedure of exploratory analysis, just deletion of non-interested samples.
+
+## Data before Filtering {.tabset .tabset-fade}
+
+```{r basic information, echo=F, warning=F}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+```
+
+```{r plot info, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION)
+```
+
+## Outcome Summary {.tabset .tabset-fade}
+
+```{r info, echo=F, warning=F}
+VAR_EVENT = "dsterm"
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_SUMMARY_OUTPUT <- furrr::future_map(LST_DATA_ALL, ~info_censored(data = ., event = VAR_EVENT))
+  future::plan("sequential")
+}else{
+  RES_SUMMARY_OUTPUT <- purrr::map(LST_DATA_ALL, ~info_censored(data = ., event = VAR_EVENT))
+}
+```
+
+```{r plot info2, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_SUMMARY_OUTPUT)
+rm(RES_SUMMARY_OUTPUT)
+```
+
+## Mandatory Variables Study {.tabset .tabset-fade}
+
+```{r mandatory outcome, echo=F, warning=F}
+# label(d.date$dsstdat)
+# "Enrolment date / first COVID-19 assessment date:"
+
+# label(d.date$cestdat)
+# "Onset date of first/earliest symptom:"
+
+# label(d.date$hostdat)
+# "Most recent presentation/admission date at this facility:"
+
+# label(d.date$daily_dsstdat)
+# "DATE OF ASSESSMENT"
+
+# label(d.date$dsstdtc)
+# "Outcome date"
+
+# label(d.date$daily_lbdat)
+# "Date of assessment"
+
+######
+# label(d.date$icu_hostdat)
+# "Date of ICU admission"
+
+# label(d.date$hoendat)
+# "Date of ICU discharge"
+
+###################################
+# DELETE PATIENTS WITHOUT OUTCOME #
+###################################
+
+#We can keep patients with no Symptoms day and use Admission as First day of Symptoms
+MANDATORY_VAR <- c("cestdat", "dsstdtc", "dsterm", "sex", "age_estimateyears")
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_MANDATORY_VARIABLES <- furrr::future_map(LST_DATA_ALL, ~study_mandatory_variables(df = ., lst_cn = MANDATORY_VAR))
+  future::plan("sequential")
+}else{
+  RES_MANDATORY_VARIABLES <- purrr::map(LST_DATA_ALL, ~study_mandatory_variables(df = ., lst_cn = MANDATORY_VAR))
+}
+
+#RES_MANDATORY_VARIABLES$data$patients
+```
+
+In next section we are going to study the mandatory variables "`r paste(MANDATORY_VAR, sep = ",")`" all the patients need to perform a survival analysis.
+
+```{r plot info3, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_MANDATORY_VARIABLES, names = "patients", custom_msg = "No observations with problems have been found")
+```
+
+## Enrolment and Admission Day Differences {.tabset .tabset-fade}
+
+```{r enrolment days variables, echo=F, warning=F}
+##########################################################################
+# DELETE PATIENTS WITH A LONG DIFFERENCE BETWEEN ADMISSION AND ENROLMENT #
+##########################################################################
+
+#a más días pasen, la medición de las pruebas de sangre y variables más variará. Lo ideal sería tener pruebas de sangre justo después de presentar los sintomas (cestdat==dsstdat), a más días pasen de los sintomas a la hospitalización más cambios habrán en las variables.
+
+MAX_DIFF_DAYS_ENR_ADM <- 3 # Maximum number of days between admission and enrolment date.
+start_var <- "hostdat" #admission
+end_var <- "dsstdat" #test
+```
+
+We showed the patients that have a significant difference of days between the `r getInfo(start_var)$Description` with variable "`r start_var`" and the `r getInfo(end_var)$Description` with variable "`r end_var`". The limit is set to `r MAX_DIFF_DAYS_ENR_ADM` days.
+
+```{r enrolment days, echo=F, warning=F}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_DURATION_ADMISION_LABTESTS <- furrr::future_map(LST_DATA_ALL, ~study_duration_variables(df = ., 
+                                                                                              start_var = start_var, end_var = end_var, 
+                                                                                              MAXDIFFDAYS = MAX_DIFF_DAYS_ENR_ADM))
+  future::plan("sequential")
+}else{
+  RES_DURATION_ADMISION_LABTESTS <- purrr::map(LST_DATA_ALL, ~study_duration_variables(df = ., 
+                                                                                              start_var = start_var, end_var = end_var, 
+                                                                                              MAXDIFFDAYS = MAX_DIFF_DAYS_ENR_ADM))
+}
+```
+
+```{r plot info4, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_DURATION_ADMISION_LABTESTS, custom_msg = "No observations with problems have been found")
+```
+
+## Symptoms and Admission Day Differences {.tabset .tabset-fade}
+
+```{r patients symptoms after admission variables, echo=F, warning=F}
+################################################
+# DELETE PATIENTS FOR SYMPTOMS AFTER ADMISSION #
+################################################
+
+MAX_DIFF_DAYS_SYM_ADM <- 0 # Maximum number of days between admission and enrolment date.
+#Possible admission due to another reason and infected inside hospital - Admitted before Symptoms
+start_var <- "cestdat" #symptoms
+end_var <- "hostdat" #admision
+```
+
+We showed the patients that have a difference of days greater than `r MAX_DIFF_DAYS_SYM_ADM` between the `r getInfo(start_var)$Description` with variable "`r start_var`" and the `r getInfo(end_var)$Description` with variable "`r end_var`". Only negative values are shown (symptoms after the admission).
+
+```{r patients symptoms after admission, echo=F, warning=F}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_DURATION_ADMISION_SYMPTOMS <- furrr::future_map(LST_DATA_ALL, ~study_duration_variables(df = ., 
+                                                                                              start_var = start_var, end_var = end_var, 
+                                                                                              MAXDIFFDAYS = MAX_DIFF_DAYS_SYM_ADM,
+                                                                                              onlyNegative = T))
+  future::plan("sequential")
+}else{
+  RES_DURATION_ADMISION_SYMPTOMS <- purrr::map(LST_DATA_ALL, ~study_duration_variables(df = ., 
+                                                                                              start_var = start_var, end_var = end_var, 
+                                                                                              MAXDIFFDAYS = MAX_DIFF_DAYS_SYM_ADM,
+                                                                                              onlyNegative = T))
+}
+```
+
+```{r plot info5, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_DURATION_ADMISION_SYMPTOMS, custom_msg = "No observations with problems have been found")
+```
+
+## List of patients to be deleted by medical reasons (Information proportioned by doctors) {.tabset .tabset-fade}
+
+```{r patients medical reasons, echo=F, warning=F}
+#######################################
+# DELETE PATIENTS FOR MEDICAL REASONS #
+#######################################
+
+#I will not include in the analysis the following patients as they were hospitalized in the rehabilitation clinic (tetraplegic patients) and they were infected during the hospitalization that is very long
+
+id_patients_medicalReasons <- c("481-0184", "481-0187", "481-0189", "481-0193")
+reasons <- rep("Hospitalized in the rehabilitation clinic (tetraplegic patients) and was infected during a very long hospitalization.", 4)
+
+id_patients_medicalReasons <- c(id_patients_medicalReasons, "ICH-455")
+reasons <- c(reasons, "Outlier values for several numerical variables (T2 and SSR).")
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_MEDICAL_REASONS <- furrr::future_map(LST_DATA_ALL, ~getDF_specialPatients(df = ., 
+                                                                      ids = id_patients_medicalReasons, 
+                                                                      reason = reasons))
+  future::plan("sequential")
+}else{
+  RES_MEDICAL_REASONS <- purrr::map(LST_DATA_ALL, ~getDF_specialPatients(df = ., 
+                                                                      ids = id_patients_medicalReasons, 
+                                                                      reason = reasons))
+}
+```
+
+```{r plot info5.1, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_MEDICAL_REASONS, custom_msg = "No observations with problems have been found")
+```
+
+<!-- ## List of patients to be deleted by other reasons {.tabset .tabset-fade} -->
+
+<!-- ```{r patients other reasons, echo=F, warning=F} -->
+<!-- ####################################### -->
+<!-- # DELETE PATIENTS FOR MEDICAL REASONS # -->
+<!-- ####################################### -->
+
+<!-- #I will not include in the analysis the following patients as they were hospitalized in the rehabilitation clinic (tetraplegic patients) and they were infected during the hospitalization that is very long -->
+
+<!-- id_patients_otherReasons <- c("ICH-455") -->
+<!-- reasons <- "Outlier values for several numerical variables (T2 and SSR)." -->
+
+<!-- if(PARALLEL){ -->
+<!--   n_cores <- max(future::availableCores() - 1, 1) -->
+
+<!--   if(.Platform$OS.type == "unix") { -->
+<!--     future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores)) -->
+<!--   }else{ -->
+<!--     future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores)) -->
+<!--   } -->
+
+<!--   RES_OTHER_REASONS <- furrr::future_map(LST_DATA_ALL, ~getDF_specialPatients(df = .,  -->
+<!--                                                                       ids = id_patients_otherReasons,  -->
+<!--                                                                       reason = reasons)) -->
+<!--   future::plan("sequential") -->
+<!-- }else{ -->
+<!--   RES_OTHER_REASONS <- purrr::map(LST_DATA_ALL, ~getDF_specialPatients(df = .,  -->
+<!--                                                                       ids = id_patients_otherReasons,  -->
+<!--                                                                       reason = reasons)) -->
+<!-- } -->
+<!-- ``` -->
+
+<!-- ```{r plot info5.2, echo=F, warning=F, results='asis'} -->
+<!-- printDFInHTML_ByTabs(LST_DATA_ALL, RES_OTHER_REASONS, custom_msg = "No observations with problems have been found") -->
+<!-- ``` -->
+
+## Update: Deleted Patients {.tabset .tabset-fade}
+
+All indicated patients are left out of the analysis.
+
+```{r delete wrong patients, echo=F,warning=F}
+patients_to_delete <- NULL
+
+for(cn in names(RES_MANDATORY_VARIABLES)){
+  patients_to_delete <- c(patients_to_delete, RES_MANDATORY_VARIABLES[[cn]]$patients$Patients)
+  patients_to_delete <- c(patients_to_delete, RES_DURATION_ADMISION_LABTESTS[[cn]]$Patients)
+  patients_to_delete <- c(patients_to_delete, RES_DURATION_ADMISION_SYMPTOMS[[cn]]$Patients)
+  patients_to_delete <- c(patients_to_delete, RES_MEDICAL_REASONS[[cn]]$Patients)
+  #patients_to_delete <- c(patients_to_delete, RES_OTHER_REASONS[[cn]]$Patients)
+}
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL <- furrr::future_map(LST_DATA_ALL, ~deletePatients(data = ., patientsToDelete = patients_to_delete))
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~deletePatients(data = ., patientsToDelete = patients_to_delete))
+  LST_DATA <- furrr::future_map(LST_DATA, ~deletePatients(data = ., patientsToDelete = patients_to_delete))
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL <- purrr::map(LST_DATA_ALL, ~deletePatients(data = ., patientsToDelete = patients_to_delete))
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~deletePatients(data = ., patientsToDelete = patients_to_delete))
+  LST_DATA <- purrr::map(LST_DATA, ~deletePatients(data = ., patientsToDelete = patients_to_delete))
+}
+```
+
+```{r plot5.2, echo=F, warning=F, results='asis'}
+#Data bases Dimension
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION_WRONG_PAT <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION_WRONG_PAT <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION, 
+                                                              lst_df2 = RES_BASIC_INFORMATION_WRONG_PAT, 
+                                                              col_name = "Deleted Wrong Patients")
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+
+rm(RES_BASIC_INFORMATION, RES_BASIC_INFORMATION_WRONG_PAT)
+```
+
+```{r get venn, echo=F, warning=F, message=F, results='asis'}
+lst_categories <- c("Missing mandatory variables", "Bad Enrolment", "Symptoms After Admission", "Medical Reasons")
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_VENN_PAT_DEL <- furrr::future_map(names(LST_DATA_ALL), ~deletion_venn_diagram_by_list(dataset_name = .,
+                                                                                 lst_names_categories = lst_categories,
+                                                                                 RES_MANDATORY_VARIABLES,
+                                                                                 RES_DURATION_ADMISION_LABTESTS,
+                                                                                 RES_DURATION_ADMISION_SYMPTOMS,
+                                                                                 RES_MEDICAL_REASONS,
+                                                                                 FOLDER))
+  future::plan("sequential")
+}else{
+  RES_VENN_PAT_DEL <- purrr::map(names(LST_DATA_ALL), ~deletion_venn_diagram_by_list(dataset_name = .,
+                                                                        lst_names_categories = lst_categories,
+                                                                        LST_MANDATORY_VARIABLES_RES = RES_MANDATORY_VARIABLES,
+                                                                        LST_DURATION_ADMISION_LABTESTS_RES = RES_DURATION_ADMISION_LABTESTS, 
+                                                                        LST_DURATION_ADMISION_SYMPTOMS_RES = RES_DURATION_ADMISION_SYMPTOMS,
+                                                                        LST_MEDICAL_REASONS = RES_MEDICAL_REASONS,
+                                                                        folder = FOLDER))
+}
+
+names(RES_VENN_PAT_DEL) <- names(LST_DATA_ALL)
+rm(RES_MANDATORY_VARIABLES, RES_DURATION_ADMISION_LABTESTS, RES_DURATION_ADMISION_SYMPTOMS, RES_MEDICAL_REASONS)
+```
+
+## Venn diagram of patients deletion {.tabset .tabset-fade}
+
+```{r plot venn, echo=F, warning=F, results='asis'}
+printVENNInHTML_ByTabs(lst_names = LST_DATA_ALL, lst_plots = RES_VENN_PAT_DEL, multiple_plots = F)
+rm(RES_VENN_PAT_DEL)
+```
+
+<!-- 
+#########################
+# DELETE -=30 YEARS OLD #
+#########################
+-->
+
+## Age Filtering {.tabset .tabset-fade}
+
+All patients younger than 30 year old are deleted because doctor agreement.
+
+```{r patients younger 30, echo=F, warning=F}
+#Select 30 years filter
+MIN_AGE = 30
+id_patients <- NULL
+for(db in names(LST_DATA_ALL)){
+  id_patients <- unique(c(id_patients, rownames(LST_DATA_ALL[[db]][LST_DATA_ALL[[db]]$age_estimateyears<MIN_AGE,])))
+}
+
+reasons <- rep(paste0("Patient younger than ", MIN_AGE, " years old (medical decision)."), length(id_patients))
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_OUTLIERS_DELETED <- furrr::future_map(LST_DATA_ALL, ~getDF_specialPatients(df = .,
+                                                                       ids = id_patients,
+                                                                       reason = reasons))
+  future::plan("sequential")
+}else{
+  RES_OUTLIERS_DELETED <- purrr::map(LST_DATA_ALL, ~getDF_specialPatients(df = .,
+                                                                       ids = id_patients,
+                                                                       reason = reasons))
+}
+```
+
+```{r plot info deleted patients, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_OUTLIERS_DELETED, custom_msg = "No observations with problems have been found")
+rm(RES_OUTLIERS_DELETED)
+```
+
+```{r delete wrong patients under 30, echo=F,warning=F}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL <- furrr::future_map(LST_DATA_ALL, ~deletePatients(data = ., patientsToDelete = id_patients))
+  LST_DATA <- furrr::future_map(LST_DATA, ~deletePatients(data = ., patientsToDelete = id_patients))
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~deletePatients(data = ., patientsToDelete = id_patients))
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL <- purrr::map(LST_DATA_ALL, ~deletePatients(data = ., patientsToDelete = id_patients))
+  LST_DATA <- purrr::map(LST_DATA, ~deletePatients(data = ., patientsToDelete = id_patients))
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~deletePatients(data = ., patientsToDelete = id_patients))
+}
+```
+
+## Update: Age Outliers {.tabset .tabset-fade}
+
+```{r plot5.2 age outliers, echo=F, warning=F, results='asis'}
+#Data bases Dimension
+RES_BASIC_INFORMATION_OUTLIERS <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION_COMBINED, 
+                                                              lst_df2 = RES_BASIC_INFORMATION_OUTLIERS, 
+                                                              col_name = "Deleted Age Outlier Patients")
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+rm(RES_BASIC_INFORMATION_OUTLIERS)
+```
+
+<!-- 
+###############################
+# GENERATING: GLOBAL SURVIVAL #
+###############################
+-->
+
+## Global Survival {.tabset .tabset-fade}
+
+We generate the different global survival times. From admission to the hospital `r "cestdat"` to the outcome date `r "dsstdtc"`. The outcome event will be "Death" (variable: `r "dsterm"`).
+
+```{r create sdata, echo=F, warning=F}
+LST_SDATA <- NULL
+lst_dateProblems <- NULL
+
+var_outcome_start = "cestdat"
+var_outcome_end = "dsstdtc"
+var_global_survival = "GlobalSurvival"
+var_event = "dsterm"
+
+#GLOBAL SURVIVAL
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL <- furrr::future_map(LST_DATA_ALL, ~createGlobalSurvival(d.date = ., start_var = var_outcome_start, 
+                                                                      end_var = var_outcome_end, new_colname = var_global_survival))
+  LST_DATA <- furrr::future_map(LST_DATA, ~createGlobalSurvival(d.date = ., start_var = var_outcome_start, 
+                                                                end_var = var_outcome_end, new_colname = var_global_survival))
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~createGlobalSurvival(d.date = ., start_var = var_outcome_start, 
+                                                                          end_var = var_outcome_end, new_colname = var_global_survival))
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL <- purrr::map(LST_DATA_ALL, ~createGlobalSurvival(d.date = ., start_var = var_outcome_start, 
+                                                               end_var = var_outcome_end, new_colname = var_global_survival))
+  LST_DATA <- purrr::map(LST_DATA, ~createGlobalSurvival(d.date = ., start_var = var_outcome_start, 
+                                                         end_var = var_outcome_end, new_colname = var_global_survival))
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~createGlobalSurvival(d.date = ., start_var = var_outcome_start, 
+                                                                   end_var = var_outcome_end, new_colname = var_global_survival))
+}
+
+#add variable to list
+VAR_DESCRIPTION <- addVarInfo(VAR_DESCRIPTION, "GlobalSurvival", "GlobalSurvival in days", "OUTCOME_VAR")
+```
+
+<!--
+#########
+# Dates #
+#########
+-->
+
+## Global Survival Filtering {.tabset .tabset-fade}
+
+```{r global survival duration study, echo=F, warning=F}
+################################################
+# DELETE PATIENTS FOR SYMPTOMS AFTER ADMISSION #
+################################################
+#Possible admission due to another reason and infected inside hospital - Admitted before Symptoms
+MAX_DIFF_DAYS_GS = 45
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_GS_DURATION <- furrr::future_map(LST_DATA_ALL, ~getDateProblems(data = ., cn_duration = var_global_survival, 
+                                                                     max.duration = MAX_DIFF_DAYS_GS))
+  future::plan("sequential")
+}else{
+  RES_GS_DURATION <- purrr::map(LST_DATA_ALL, ~getDateProblems(data = ., cn_duration = var_global_survival, 
+                                                              max.duration = MAX_DIFF_DAYS_GS))
+}
+```
+
+Patients with negative survival times, greater than `r MAX_DIFF_DAYS_GS` days or with missing values will be deleted.
+
+```{r plot info13, echo=F, warning=F, results='asis'}
+printDFInHTML_ByTabs(RES_GS_DURATION, RES_GS_DURATION, custom_msg = "No observations with problems have been found")
+```
+
+## Update: Survival Time {.tabset .tabset-fade}
+
+```{r plot14, echo=F, warning=F, results='asis'}
+#Data bases Dimension
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL <- furrr::future_map(LST_DATA_ALL, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  LST_DATA <- furrr::future_map(LST_DATA, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  LST_SDATA <- furrr::future_map(LST_SDATA, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL <- purrr::map(LST_DATA_ALL, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  LST_DATA <- purrr::map(LST_DATA, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+  LST_SDATA <- purrr::map(LST_SDATA, ~deletePatients(data = ., patientsToDelete = RES_GS_DURATION$European$Patients))
+}
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_BASIC_INFORMATION_GS <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_BASIC_INFORMATION_GS <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION_COMBINED, 
+                                                              lst_df2 = RES_BASIC_INFORMATION_GS, 
+                                                              col_name = "GlobalSurvival Filter")
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+rm(RES_BASIC_INFORMATION_GS, RES_GS_DURATION)
+```
+
+## Generate Survival Dataframe
+
+This matrix/data.frame get the "rownames" as the patients ID and has two columns. The global survival and the event variable as TRUE for those patients that reach the event and FALSE for those are censored.
+
+```{r, echo=F, warning=F}
+#SDATA
+var_global_survival = "GlobalSurvival"
+var_event = "dsterm"
+for(h in names(LST_DATA_ALL)){
+    d <- LST_DATA_ALL[[h]]
+    LST_SDATA[[h]] <- createSurvivalDF(d, d, cn_survival_time = var_global_survival, 
+                                     cn_event = var_event, dfFactors = NULL, true_factor_lvl = "Death")
+}
+
+rm(d)
+```
+
+## Delete non-informative variables {.tabset .tabset-fade}
+
+```{r variable remove, include=F}
+lst_cn <- "sitename"
+```
+
+Next variables (`r lst_cn`) will be removed because do not provide relevant information to the analysis. Variable "sitename" only makes sense in Spain database, but as it is already merged between Spanish hospitals, we are not going to use it.
+
+```{r remove variables, include=F}
+for(ddbb in names(LST_DATA_ALL)){
+  for(cn in lst_cn){
+    if(cn %in% colnames(LST_DATA_ALL[[ddbb]])){
+      LST_DATA_ALL[[ddbb]][,cn] <- NULL
+    }
+    
+    if(ddbb %in% names(LST_DATA)){
+      if(cn %in% colnames(LST_DATA[[ddbb]])){
+        LST_DATA[[ddbb]][,cn] <- NULL
+      }
+    }
+    
+    if(ddbb %in% names(LST_DATA_MERGE)){
+      if(cn %in% colnames(LST_DATA_MERGE[[ddbb]])){
+        LST_DATA_MERGE[[ddbb]][,cn] <- NULL
+      }
+    }
+  }
+}
+```
+
+## Generate Qualitative Age Variable from better division of survival {.tabset .tabset-fade}
+
+```{r assing max cuts, include=F}
+MAX_N.CUTS <-9
+```
+
+Age is spitted in a maximum of `r MAX_N.CUTS+1` categories. For each category a minimum number of patients is needed. In case the next category not reach the minimum, all the patients will be to the same category and the split will be stopped.
+
+```{r quantitative to factor, echo=F, warning=F}
+# LST_SDATA$Calabria <- LST_SDATA$Calabria[rownames(lst_var$Calabria$d.num),]
+# LST_SDATA$Humanitas <- LST_SDATA$Humanitas[rownames(lst_var$Humanitas$d.num),]
+# LST_SDATA$Monza <- LST_SDATA$Monza[rownames(lst_var$Monza$d.num),]
+# LST_SDATA$Italy_Hospitals <- LST_SDATA$Italy_Hospitals[rownames(lst_var$Italy_Hospitals$d.num),]
+# LST_SDATA$Spain_Admission <- LST_SDATA$Spain_Admission[rownames(lst_var$Spain_Admission$d.num),]
+# LST_SDATA$Spain_Hospitals <- LST_SDATA$Spain_Hospitals[rownames(lst_var$Spain_Hospitals$d.num),]
+# LST_SDATA$European_Hospitals <- LST_SDATA$European_Hospitals[rownames(lst_var$European_Hospitals$d.num),]
+
+lst_num2factors <- c("age_estimateyears")
+lst_cutpoint <- list()
+lst_patients_cut_point <- list()
+
+for(h in names(LST_SDATA)){
+  for(cn in lst_num2factors){
+    aux_sdata <- cbind(LST_SDATA[[h]], LST_DATA_ALL[[h]][,cn,drop=F])
+    colnames(aux_sdata)[ncol(aux_sdata)] <- cn
+    
+    minProp <- minNumberPatients(nrow(aux_sdata)) / nrow(aux_sdata)
+    
+    lst_cutpoint[[h]][[cn]] <- list()
+    lst_patients_cut_point[[h]][[cn]] <- list()
+    
+    df_cutpoint <- NULL
+    for(i in 1:MAX_N.CUTS){
+      index <- paste0("cutpoint_", i)
+      p2r <- unlist(lst_patients_cut_point[[h]])
+      subdata <- aux_sdata[!rownames(aux_sdata) %in% p2r,]
+      lst_cutpoint[[h]][[cn]][[index]] <- survminer::surv_cutpoint(data = subdata, 
+                                                          time="time", event="event", 
+                                                          variables = cn, minprop = minProp)
+      
+      #if next loop not enought patients, add all together
+      n.pat_below <- subdata[subdata[[cn]] < lst_cutpoint[[h]][[cn]][[index]]$cutpoint$cutpoint,]
+      if(nrow(n.pat_below) < minProp * nrow(aux_sdata)){
+        lst_cutpoint[[h]][[cn]][[index]] <- NULL
+        i <- i-1
+        break
+      }
+      
+      if(!is.na(lst_cutpoint[[h]][[cn]][[index]]$cutpoint$cutpoint)){
+        lst_patients_cut_point[[h]][[cn]][[index]] <- rownames(subdata[subdata[[cn]] > lst_cutpoint[[h]][[cn]][[index]]$cutpoint$cutpoint,])
+        df_cutpoint <- rbind(df_cutpoint, lst_cutpoint[[h]][[cn]][[index]]$cutpoint)
+      }else{
+        lst_cutpoint[[h]][[cn]][[index]] <- NULL
+        i <- i-1
+        break
+      }
+      
+    }
+    lst_cutpoint[[h]][[cn]] <- cbind(df_cutpoint, c(sapply(lst_patients_cut_point[[h]][[cn]], length)))
+    lst_cutpoint[[h]][[cn]] <- rbind(lst_cutpoint[[h]][[cn]], c(MIN_AGE, NaN, 
+                                                                nrow(aux_sdata) - sum(sapply(lst_patients_cut_point[[h]][[cn]], length))))
+    colnames(lst_cutpoint[[h]][[cn]]) <- c("cutpoint", "statistic", "observations over cutpoint")
+    rownames(lst_cutpoint[[h]][[cn]]) <- paste0("cutpoint_", 1:(i+1))
+  }
+}
+
+rm(aux_sdata, df_cutpoint, lst_patients_cut_point, n.pat_below, subdata)
+```
+
+```{r plot cutpoints, echo=F, warning=F, message=F, results='asis', eval=T}
+printDFInHTML_ByTabs(lst_cutpoint, lst_cutpoint, multiple_df = T)
+```
+
+```{r create qualitative numerical variable, echo=F, warning=F}
+for(h in names(lst_cutpoint)){
+  for(cn in names(lst_cutpoint[[h]])){
+    for(i in 1:nrow(lst_cutpoint[[h]][[cn]])){
+      max <- Inf
+      aux_var <- cut(x = LST_DATA_ALL[[h]][[cn]], breaks = c(lst_cutpoint[[h]][[cn]]$cutpoint, max), include.lowest = T)
+      LST_DATA_ALL[[h]][,paste0(cn, ".qual")] <- aux_var
+      
+      if(h %in% names(LST_DATA)){
+        LST_DATA[[h]][,paste0(cn, ".qual")] <- aux_var
+      }
+      if(h %in% names(LST_DATA_MERGE)){
+        LST_DATA_MERGE[[h]][,paste0(cn, ".qual")] <- aux_var
+      }
+    }
+  }
+}
+
+#add variable to list
+VAR_DESCRIPTION <- addVarInfo(VAR_DESCRIPTION, "age_estimateyears.qual", "Qualitative Age", "INDIVIDUAL_INFORMATION_VAR")
+
+rm(lst_cutpoint)
+```
+
+## Change specific levels in qualitative variables {.tabset .tabset-fade}
+
+```{r update some variables, echo=F, warning=F}
+cn = "cough_ceoccur_v2_2"
+old_value = c("YES nonproductive", "YES productive")
+new_value = c("YES", "YES")
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL[NAMES_MERGE] <- furrr::future_map(LST_DATA_ALL[NAMES_MERGE], ~revalueFactors(., cn, old_value, new_value)) #refactor
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~revalueFactors(., cn, old_value, new_value)) #refactor
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL[NAMES_MERGE] <- purrr::map(LST_DATA_ALL[NAMES_MERGE], ~revalueFactors(., cn, old_value, new_value)) #refactor
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~revalueFactors(., cn, old_value, new_value)) #refactor
+}
+```
+
+Variable `r cn` has been change in merge databases because Calabria hospital have more categories than the other ones. So, we collapse those categories into the others.
+
+## Change missing values in Var 'oxygen_cmdose' {.tabset .tabset-fade}
+
+If any oxygen therapy has been applied (var: oxygen_cmoccur). Variable "oxygen_cmdose" indicates "Maximum O2 flow volume". When no oxygen therapy is given, the value is a missing value. We changed the missing value for a new category with the value "0L/min".
+
+```{r update oxygen_cmoccur variables, echo=F, warning=F}
+cn = "oxygen_cmoccur"
+cn_res = "oxygen_cmdose"
+
+lst_hosp_with_cn <- unlist(purrr::map(LST_DATA_ALL, ~cn %in% colnames(.)))
+lst_hosp_with_cn <- which(lst_hosp_with_cn==T)
+
+lst_pat_NO_oxygen <- purrr::map(names(LST_DATA_ALL)[lst_hosp_with_cn], ~which(LST_DATA_ALL[[.]][,cn]=="NO"))
+names(lst_pat_NO_oxygen) <- names(lst_hosp_with_cn)[lst_hosp_with_cn]
+
+for(h in names(lst_pat_NO_oxygen)){
+  
+  if(!cn_res %in% colnames(LST_DATA_ALL[[h]])){
+    next
+  }
+  
+  levels(LST_DATA_ALL[[h]][,cn_res]) <- c("0L/min",levels(LST_DATA_ALL[[h]][,cn_res]))
+  LST_DATA_ALL[[h]][lst_pat_NO_oxygen[[h]],cn_res] <- "0L/min"
+  
+  if(h %in% names(LST_DATA)){
+    levels(LST_DATA[[h]][,cn_res]) <- c("0L/min",levels(LST_DATA[[h]][,cn_res]))
+    LST_DATA[[h]][lst_pat_NO_oxygen[[h]],cn_res] <- "0L/min"
+  }
+  
+  if(h %in% names(LST_DATA_MERGE)){
+    levels(LST_DATA_MERGE[[h]][,cn_res]) <- c("0L/min",levels(LST_DATA_MERGE[[h]][,cn_res]))
+    LST_DATA_MERGE[[h]][lst_pat_NO_oxygen[[h]],cn_res] <- "0L/min"
+  }
+}
+```
+
+## Change level order {.tabset .tabset-fade}
+
+In out case, we want to compare having a specific feature against to not have it. We are going to change all the level order to next order: NO-YES / Unchecked-Checked / Male-Female...
+
+```{r change factor order, include=F}
+#printColumnsEqualClass(data, "factor")
+
+#inside the function we stablish all the order factors for all the variables
+#yes-no, male-female...
+
+exclude_var_yes_no = c("siteid_transfer","country", "siteid", "age_estimateyears.qual", VAR_DDBB, "daily_noninvasive_prtype")
+
+UNITS_VAR = VAR_DESCRIPTION[VAR_DESCRIPTION$Type=="UNITS_VAR",]$Variable
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  LST_DATA_ALL <- furrr::future_map(LST_DATA_ALL, ~changeOrderLevel_COVID(., UNITS_VAR, exclude = exclude_var_yes_no))
+  LST_DATA <- furrr::future_map(LST_DATA, ~changeOrderLevel_COVID(., UNITS_VAR, exclude = exclude_var_yes_no))
+  LST_DATA_MERGE <- furrr::future_map(LST_DATA_MERGE, ~changeOrderLevel_COVID(., UNITS_VAR, exclude = exclude_var_yes_no))
+  future::plan("sequential")
+}else{
+  LST_DATA_ALL <- purrr::map(LST_DATA_ALL, ~changeOrderLevel_COVID(., UNITS_VAR, exclude = exclude_var_yes_no))
+  LST_DATA <- purrr::map(LST_DATA, ~changeOrderLevel_COVID(., UNITS_VAR, exclude = exclude_var_yes_no))
+  LST_DATA_MERGE <- purrr::map(LST_DATA_MERGE, ~changeOrderLevel_COVID(., UNITS_VAR, exclude = exclude_var_yes_no))
+}
+
+rm(exclude_var_yes_no)
+```
+
+## Summary Information {.tabset .tabset-fade}
+
+```{r final basic information}
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  RES_SUMMARY <- furrr::future_map(LST_DATA_ALL, ~info_dimensions(data = .))
+  future::plan("sequential")
+}else{
+  RES_SUMMARY <- purrr::map(LST_DATA_ALL, ~info_dimensions(data = .))
+}
+
+RES_BASIC_INFORMATION_COMBINED <- combine_lst_info_dimensions(lst_df1 = RES_BASIC_INFORMATION_COMBINED, 
+                                                              lst_df2 = RES_SUMMARY, 
+                                                              col_name = "Variable filter")
+```
+
+```{r plot info - basic information, results='asis'}
+printDFInHTML_ByTabs(LST_DATA_ALL, RES_BASIC_INFORMATION_COMBINED)
+rm(RES_SUMMARY, RES_BASIC_INFORMATION_COMBINED)
+```
+
+## Save Process {.tabset .tabset-fade}
+
+Databases are saved in .RData and .xlsx format with their new colnames. Excel format does not save the same R class for each variable. We recommend to work with .RData files in case you want to do your own study.
+
+```{r lst_all_hosptals_to_df, echo=F, warning=F, eval=T, include=F}
+library(openxlsx)
+
+if(PARALLEL){
+  n_cores <- max(future::availableCores() - 1, 1)
+  
+  if(.Platform$OS.type == "unix") {
+    future::plan("multicore", workers = min(length(LST_DATA_ALL), n_cores))
+  }else{
+    future::plan("multisession", workers = min(length(LST_DATA_ALL), n_cores))
+  }
+  
+  furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  furrr::future_map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+  furrr::future_map2(.x = LST_SDATA, .y = names(LST_SDATA), ~save(.x, file = paste0(FOLDER,.y,'_survival_data.RData')))
+  future::plan("sequential")
+}else{
+  purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~write.xlsx(.x, file = paste0(FOLDER,.y,'.xlsx'), overwrite = T))
+  purrr::map2(.x = LST_DATA_ALL, .y = names(LST_DATA_ALL), ~save(.x, file = paste0(FOLDER,.y,'.RData')))
+  purrr::map2(.x = LST_SDATA, .y = names(LST_SDATA), ~save(.x, file = paste0(FOLDER,.y,'_survival_data.RData')))
+}
+
+rm(params)
+rm(list = ls.str(mode = 'numeric')[str_detect(ls.str(mode = "numeric"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'character')[str_detect(ls.str(mode = "character"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'logical')[str_detect(ls.str(mode = "logical"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'NULL')[str_detect(ls.str(mode = "NULL"),"[[:lower:]]")])
+rm(list = ls.str(mode = 'function'))
+```
+
+```{r saveData filtered, echo=F, results="hide", eval=T, include=F}
+save.image(paste0(FOLDER,"NewInfoPlusFiltering.output.RData"))
+```
